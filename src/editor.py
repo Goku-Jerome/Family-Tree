@@ -1,4 +1,7 @@
 import sys
+import json
+import xml.etree.ElementTree as ET
+
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -10,15 +13,16 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QMessageBox,
     QInputDialog,
+    QFileDialog,
     QSizePolicy,
     QGraphicsView,
     QGraphicsScene,
     QGraphicsRectItem,
     QGraphicsTextItem,
-    QDialog, 
-    QFormLayout, 
-    QLineEdit, 
-    QDialogButtonBox, 
+    QDialog,
+    QFormLayout,
+    QLineEdit,
+    QDialogButtonBox,
     QVBoxLayout    
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF
@@ -155,7 +159,17 @@ class TreeEditor(QMainWindow):
         self.create_root_button.clicked.connect(self.create_root_person)
         self.create_root_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+        self.save_button = QPushButton("Save Tree")
+        self.save_button.clicked.connect(self.save_tree)
+        self.save_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        self.load_button = QPushButton("Load Tree")
+        self.load_button.clicked.connect(self.load_tree)
+        self.load_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         top_control.addWidget(self.create_root_button)
+        top_control.addWidget(self.save_button)
+        top_control.addWidget(self.load_button)
 
         top_control.addWidget(QLabel("Current Person:"))
         self.person_selector = QComboBox()
@@ -348,6 +362,154 @@ class TreeEditor(QMainWindow):
                 
         return visible
 
+    # --- Persistence -----------------------------------
+    def build_person_data(self, person):
+        return {
+            "id": person.id,
+            "first_name": person.first_name,
+            "last_name": person.last_name,
+            "dob": person.dob,
+            "parents": [p.id for p in person.parents],
+            "children": [c.id for c in person.children],
+            "partner": person.partner.id if person.partner else None,
+        }
+
+    def to_dict(self):
+        return {"people": [self.build_person_data(p) for p in self.people.values()]}
+
+    def serialize_json(self, path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+
+    def serialize_xml(self, path):
+        root = ET.Element("family_tree")
+        for person in self.people.values():
+            p_elem = ET.SubElement(root, "person", attrib={"id": person.id})
+            ET.SubElement(p_elem, "first_name").text = person.first_name
+            ET.SubElement(p_elem, "last_name").text = person.last_name
+            ET.SubElement(p_elem, "dob").text = person.dob
+
+            parents_elem = ET.SubElement(p_elem, "parents")
+            for pid in [p.id for p in person.parents]:
+                ET.SubElement(parents_elem, "parent").text = pid
+
+            children_elem = ET.SubElement(p_elem, "children")
+            for cid in [c.id for c in person.children]:
+                ET.SubElement(children_elem, "child").text = cid
+
+            ET.SubElement(p_elem, "partner").text = person.partner.id if person.partner else ""
+
+        tree = ET.ElementTree(root)
+        tree.write(path, encoding="utf-8", xml_declaration=True)
+
+    def load_from_dict(self, data):
+        self.people.clear()
+        self.current_person = None
+
+        # create persons first
+        for p_data in data.get("people", []):
+            p = Person(
+                first_name=p_data.get("first_name"),
+                last_name=p_data.get("last_name"),
+                dob=p_data.get("dob"),
+                person_id=p_data.get("id"),
+            )
+            self.people[p.id] = p
+
+        # establish relationships
+        for p_data in data.get("people", []):
+            p = self.people.get(p_data["id"])
+            if not p:
+                continue
+            for parent_id in p_data.get("parents", []):
+                parent = self.people.get(parent_id)
+                if parent:
+                    p.add_parent(parent)
+            for child_id in p_data.get("children", []):
+                child = self.people.get(child_id)
+                if child:
+                    p.add_child(child)
+            partner_id = p_data.get("partner")
+            if partner_id:
+                partner = self.people.get(partner_id)
+                if partner:
+                    p.set_partner(partner)
+
+        if self.people:
+            self.set_current_person(next(iter(self.people.values())))
+        self.update_ui_state()
+
+    def deserialize_json(self, path):
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.load_from_dict(data)
+
+    def deserialize_xml(self, path):
+        tree = ET.parse(path)
+        root = tree.getroot()
+        data = {"people": []}
+
+        for p_elem in root.findall("person"):
+            pid = p_elem.get("id")
+            first_name = p_elem.findtext("first_name", "Unnamed")
+            last_name = p_elem.findtext("last_name", "Unnamed")
+            dob = p_elem.findtext("dob", "Unknown")
+
+            parents = [c.text for c in p_elem.find("parents") or [] if c.text]
+            children = [c.text for c in p_elem.find("children") or [] if c.text]
+            partner = p_elem.findtext("partner", "")
+            partner = partner if partner else None
+
+            data["people"].append({
+                "id": pid,
+                "first_name": first_name,
+                "last_name": last_name,
+                "dob": dob,
+                "parents": parents,
+                "children": children,
+                "partner": partner,
+            })
+
+        self.load_from_dict(data)
+
+    def save_tree(self):
+        path, selected = QFileDialog.getSaveFileName(
+            self,
+            "Save Family Tree",
+            "family_tree.json",
+            "JSON Files (*.json);;XML Files (*.xml)",
+        )
+        if not path:
+            return
+
+        try:
+            if path.lower().endswith(".xml") or selected.startswith("XML"):
+                self.serialize_xml(path)
+            else:
+                self.serialize_json(path)
+            QMessageBox.information(self, "Save Successful", f"Saved family tree to {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save family tree:\n{e}")
+
+    def load_tree(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Family Tree",
+            "",
+            "JSON Files (*.json);;XML Files (*.xml)",
+        )
+        if not path:
+            return
+
+        try:
+            if path.lower().endswith(".xml"):
+                self.deserialize_xml(path)
+            else:
+                self.deserialize_json(path)
+            QMessageBox.information(self, "Load Successful", f"Loaded family tree from {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to load family tree:\n{e}")
+
 
     def manage_relationship(self, relationship):
         if not self.current_person:
@@ -533,11 +695,13 @@ class TreeEditor(QMainWindow):
                         p_center = p_item.sceneBoundingRect().center()
                         partner_center = partner_item.sceneBoundingRect().center()
                         
-                        self.scene.addLine(
+                        # Store the line in a variable and set its Z-value to -1
+                        partner_line = self.scene.addLine(
                             p_center.x(), p_center.y(), 
                             partner_center.x(), partner_center.y(), 
                             QPen(Qt.GlobalColor.blue, 2, Qt.PenStyle.DashLine)
                         )
+                        partner_line.setZValue(-1)
                         
                         mid_x = (p_center.x() + partner_center.x()) / 2
                         mid_y = (p_center.y() + partner_center.y()) / 2

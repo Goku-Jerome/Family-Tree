@@ -27,8 +27,7 @@ class HomeMenu(QMainWindow):
 
         # --- Buttons ---
         button_actions = {
-            "New Tree": self.create_new_tree,
-            "Load Tree": self.load_existing_tree,
+            "Tree Editor": self.create_new_tree,
             "Options": self.open_options,
             "Exit": self.exit_program
         }
@@ -81,9 +80,6 @@ class HomeMenu(QMainWindow):
     def create_new_tree(self):
         self.open_editor()
 
-    def load_existing_tree(self):
-        # Future: parse file and populate tree
-        self.open_editor()
 
     def open_editor(self):
         self.editor_window = editor.TreeEditor(self)

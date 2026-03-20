@@ -1,0 +1,477 @@
+{
+  "people": [
+    {
+      "id": "e63fd604-8597-48de-932b-1708fb57506d",
+      "first_name": "Jerome",
+      "last_name": "Khoury",
+      "dob": "2004-06-24",
+      "parents": [
+        "26e6a159-75fc-4917-abe7-1f456673decb",
+        "7b90a531-2cdd-4bdd-8458-443ab0be5198"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "26e6a159-75fc-4917-abe7-1f456673decb",
+      "first_name": "George",
+      "last_name": "Khoury",
+      "dob": "1977-05-03",
+      "parents": [
+        "45693845-3a0b-48b4-965e-c6883c5003d1",
+        "0c7f3c3f-6a59-4c61-9253-66214e04cbcd"
+      ],
+      "children": [
+        "e63fd604-8597-48de-932b-1708fb57506d",
+        "ce66f0d3-beb8-4002-b657-79c44ad6050f",
+        "3ebe6eee-10a7-4390-a7af-96ad74c30203"
+      ],
+      "partner": "7b90a531-2cdd-4bdd-8458-443ab0be5198"
+    },
+    {
+      "id": "7b90a531-2cdd-4bdd-8458-443ab0be5198",
+      "first_name": "Natalie",
+      "last_name": "Khoury",
+      "dob": "1975-12-31",
+      "parents": [
+        "ecfbec42-23e6-4885-9a59-4458f03100b0",
+        "b6aca67e-480b-48db-8784-42f670b2f495"
+      ],
+      "children": [
+        "e63fd604-8597-48de-932b-1708fb57506d",
+        "ce66f0d3-beb8-4002-b657-79c44ad6050f",
+        "3ebe6eee-10a7-4390-a7af-96ad74c30203"
+      ],
+      "partner": "26e6a159-75fc-4917-abe7-1f456673decb"
+    },
+    {
+      "id": "45693845-3a0b-48b4-965e-c6883c5003d1",
+      "first_name": "Habib",
+      "last_name": "Khoury",
+      "dob": "Unknown",
+      "parents": [
+        "8f2aeb2b-8d2b-41a6-8fc6-698ae5b42689",
+        "f15be9aa-9d78-4f84-bdc9-ea77e831fcd4"
+      ],
+      "children": [
+        "26e6a159-75fc-4917-abe7-1f456673decb",
+        "96f5851f-15fc-4718-ba51-e08e0ffbbcb9",
+        "b5941cb2-7e6b-4600-9ff6-1a2f258819e6"
+      ],
+      "partner": "0c7f3c3f-6a59-4c61-9253-66214e04cbcd"
+    },
+    {
+      "id": "0c7f3c3f-6a59-4c61-9253-66214e04cbcd",
+      "first_name": "Fahime",
+      "last_name": "Khoury",
+      "dob": "Unknown",
+      "parents": [
+        "76b2992a-d840-45de-9d15-8813fa3a014b",
+        "b501a319-117e-4576-8a1a-7e1dd7e2660b"
+      ],
+      "children": [
+        "26e6a159-75fc-4917-abe7-1f456673decb",
+        "96f5851f-15fc-4718-ba51-e08e0ffbbcb9",
+        "b5941cb2-7e6b-4600-9ff6-1a2f258819e6"
+      ],
+      "partner": "45693845-3a0b-48b4-965e-c6883c5003d1"
+    },
+    {
+      "id": "ecfbec42-23e6-4885-9a59-4458f03100b0",
+      "first_name": "George",
+      "last_name": "Sawan",
+      "dob": "Unknown",
+      "parents": [
+        "b095bd9b-5c64-4b01-813b-825a2d9634d0",
+        "8daea97d-81ea-417a-b339-0c5b9a81c67f"
+      ],
+      "children": [
+        "7b90a531-2cdd-4bdd-8458-443ab0be5198",
+        "048edfc7-6e84-4d8e-88a9-fc54fdd771dd"
+      ],
+      "partner": "b6aca67e-480b-48db-8784-42f670b2f495"
+    },
+    {
+      "id": "b6aca67e-480b-48db-8784-42f670b2f495",
+      "first_name": "Latife",
+      "last_name": "Sawan",
+      "dob": "Unknown",
+      "parents": [
+        "9414aafa-0803-4d6e-8a6f-87ebdf31b4f3"
+      ],
+      "children": [
+        "7b90a531-2cdd-4bdd-8458-443ab0be5198",
+        "048edfc7-6e84-4d8e-88a9-fc54fdd771dd"
+      ],
+      "partner": "ecfbec42-23e6-4885-9a59-4458f03100b0"
+    },
+    {
+      "id": "ce66f0d3-beb8-4002-b657-79c44ad6050f",
+      "first_name": "Sebastian",
+      "last_name": "Khoury",
+      "dob": "2006-11-06",
+      "parents": [
+        "26e6a159-75fc-4917-abe7-1f456673decb",
+        "7b90a531-2cdd-4bdd-8458-443ab0be5198"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "3ebe6eee-10a7-4390-a7af-96ad74c30203",
+      "first_name": "Elijah",
+      "last_name": "Khoury",
+      "dob": "2011-04-15",
+      "parents": [
+        "26e6a159-75fc-4917-abe7-1f456673decb",
+        "7b90a531-2cdd-4bdd-8458-443ab0be5198"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "96f5851f-15fc-4718-ba51-e08e0ffbbcb9",
+      "first_name": "Gladys",
+      "last_name": "Ibrahim",
+      "dob": "Unknown",
+      "parents": [
+        "45693845-3a0b-48b4-965e-c6883c5003d1",
+        "0c7f3c3f-6a59-4c61-9253-66214e04cbcd"
+      ],
+      "children": [
+        "2bd858cf-5d61-4a69-be9d-31f425dbf74c"
+      ],
+      "partner": "862a2791-6c1f-4c6f-9d33-c07a8c3f2512"
+    },
+    {
+      "id": "b5941cb2-7e6b-4600-9ff6-1a2f258819e6",
+      "first_name": "Andrew",
+      "last_name": "Khoury",
+      "dob": "Unknown",
+      "parents": [
+        "45693845-3a0b-48b4-965e-c6883c5003d1",
+        "0c7f3c3f-6a59-4c61-9253-66214e04cbcd"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "048edfc7-6e84-4d8e-88a9-fc54fdd771dd",
+      "first_name": "Albert",
+      "last_name": "Sawan",
+      "dob": "Unknown",
+      "parents": [
+        "ecfbec42-23e6-4885-9a59-4458f03100b0",
+        "b6aca67e-480b-48db-8784-42f670b2f495"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "862a2791-6c1f-4c6f-9d33-c07a8c3f2512",
+      "first_name": "Brian",
+      "last_name": "Ibrahim",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "2bd858cf-5d61-4a69-be9d-31f425dbf74c"
+      ],
+      "partner": "96f5851f-15fc-4718-ba51-e08e0ffbbcb9"
+    },
+    {
+      "id": "2bd858cf-5d61-4a69-be9d-31f425dbf74c",
+      "first_name": "Sarah",
+      "last_name": "Ibrahim",
+      "dob": "Unknown",
+      "parents": [
+        "96f5851f-15fc-4718-ba51-e08e0ffbbcb9",
+        "862a2791-6c1f-4c6f-9d33-c07a8c3f2512"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "9414aafa-0803-4d6e-8a6f-87ebdf31b4f3",
+      "first_name": "Hasna",
+      "last_name": "Chater",
+      "dob": "Unknown",
+      "parents": [
+        "1f8dae5f-f1f6-457d-9606-02221bff225b"
+      ],
+      "children": [
+        "b6aca67e-480b-48db-8784-42f670b2f495",
+        "9000cb54-e2ec-46a4-91b4-7999fa8c99e0",
+        "786a5c62-e4ea-4f37-8dba-2ab986edf075"
+      ],
+      "partner": "7513edd0-72ef-4e96-a8e3-aff1db8794cf"
+    },
+    {
+      "id": "b095bd9b-5c64-4b01-813b-825a2d9634d0",
+      "first_name": "Rosa",
+      "last_name": "Sawan",
+      "dob": "Unknown",
+      "parents": [
+        "1f8dae5f-f1f6-457d-9606-02221bff225b"
+      ],
+      "children": [
+        "ecfbec42-23e6-4885-9a59-4458f03100b0"
+      ],
+      "partner": "8daea97d-81ea-417a-b339-0c5b9a81c67f"
+    },
+    {
+      "id": "8daea97d-81ea-417a-b339-0c5b9a81c67f",
+      "first_name": "Abdullah",
+      "last_name": "Sawan",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "ecfbec42-23e6-4885-9a59-4458f03100b0"
+      ],
+      "partner": "b095bd9b-5c64-4b01-813b-825a2d9634d0"
+    },
+    {
+      "id": "1f8dae5f-f1f6-457d-9606-02221bff225b",
+      "first_name": "Unnamed",
+      "last_name": "Unnamed",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "b095bd9b-5c64-4b01-813b-825a2d9634d0",
+        "9414aafa-0803-4d6e-8a6f-87ebdf31b4f3",
+        "06e6e959-e590-4d3e-98c2-61e991bf9f2b"
+      ],
+      "partner": null
+    },
+    {
+      "id": "06e6e959-e590-4d3e-98c2-61e991bf9f2b",
+      "first_name": "Soud",
+      "last_name": "Chater",
+      "dob": "Unknown",
+      "parents": [
+        "1f8dae5f-f1f6-457d-9606-02221bff225b"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "8f2aeb2b-8d2b-41a6-8fc6-698ae5b42689",
+      "first_name": "Unnamed",
+      "last_name": "Unnamed",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "45693845-3a0b-48b4-965e-c6883c5003d1"
+      ],
+      "partner": "f15be9aa-9d78-4f84-bdc9-ea77e831fcd4"
+    },
+    {
+      "id": "f15be9aa-9d78-4f84-bdc9-ea77e831fcd4",
+      "first_name": "Unnamed",
+      "last_name": "Unnamed",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "45693845-3a0b-48b4-965e-c6883c5003d1"
+      ],
+      "partner": "8f2aeb2b-8d2b-41a6-8fc6-698ae5b42689"
+    },
+    {
+      "id": "76b2992a-d840-45de-9d15-8813fa3a014b",
+      "first_name": "Unnamed",
+      "last_name": "Unnamed",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "0c7f3c3f-6a59-4c61-9253-66214e04cbcd"
+      ],
+      "partner": "b501a319-117e-4576-8a1a-7e1dd7e2660b"
+    },
+    {
+      "id": "b501a319-117e-4576-8a1a-7e1dd7e2660b",
+      "first_name": "Unnamed",
+      "last_name": "Unnamed",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "0c7f3c3f-6a59-4c61-9253-66214e04cbcd"
+      ],
+      "partner": "76b2992a-d840-45de-9d15-8813fa3a014b"
+    },
+    {
+      "id": "7513edd0-72ef-4e96-a8e3-aff1db8794cf",
+      "first_name": "Unnamed",
+      "last_name": "Unnamed",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "9000cb54-e2ec-46a4-91b4-7999fa8c99e0",
+        "786a5c62-e4ea-4f37-8dba-2ab986edf075"
+      ],
+      "partner": "9414aafa-0803-4d6e-8a6f-87ebdf31b4f3"
+    },
+    {
+      "id": "9000cb54-e2ec-46a4-91b4-7999fa8c99e0",
+      "first_name": "Yvone",
+      "last_name": "Skaf",
+      "dob": "Unknown",
+      "parents": [
+        "9414aafa-0803-4d6e-8a6f-87ebdf31b4f3",
+        "7513edd0-72ef-4e96-a8e3-aff1db8794cf"
+      ],
+      "children": [
+        "fa871344-b4a4-447e-a6f8-cb2e74d86371",
+        "4d8821d1-a49d-489a-a507-410c2221c491"
+      ],
+      "partner": "d89d5daf-863d-4c5c-b15a-88d39cd9f0a1"
+    },
+    {
+      "id": "786a5c62-e4ea-4f37-8dba-2ab986edf075",
+      "first_name": "Aida",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [
+        "9414aafa-0803-4d6e-8a6f-87ebdf31b4f3",
+        "7513edd0-72ef-4e96-a8e3-aff1db8794cf"
+      ],
+      "children": [
+        "d72b373b-8988-46cb-9a9f-da6464556d85",
+        "c289d324-08f4-43a5-99c3-41b0bc111d30",
+        "060c2768-83f3-414f-9253-8da0aa04b050"
+      ],
+      "partner": "271ec9ca-6134-4e63-bf0b-458d1c176bc8"
+    },
+    {
+      "id": "271ec9ca-6134-4e63-bf0b-458d1c176bc8",
+      "first_name": "Michael",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "d72b373b-8988-46cb-9a9f-da6464556d85",
+        "c289d324-08f4-43a5-99c3-41b0bc111d30",
+        "060c2768-83f3-414f-9253-8da0aa04b050"
+      ],
+      "partner": "786a5c62-e4ea-4f37-8dba-2ab986edf075"
+    },
+    {
+      "id": "d89d5daf-863d-4c5c-b15a-88d39cd9f0a1",
+      "first_name": "Naseur",
+      "last_name": "Skaf",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "fa871344-b4a4-447e-a6f8-cb2e74d86371",
+        "4d8821d1-a49d-489a-a507-410c2221c491"
+      ],
+      "partner": "9000cb54-e2ec-46a4-91b4-7999fa8c99e0"
+    },
+    {
+      "id": "fa871344-b4a4-447e-a6f8-cb2e74d86371",
+      "first_name": "Elias",
+      "last_name": "Skaf",
+      "dob": "Unknown",
+      "parents": [
+        "9000cb54-e2ec-46a4-91b4-7999fa8c99e0",
+        "d89d5daf-863d-4c5c-b15a-88d39cd9f0a1"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "4d8821d1-a49d-489a-a507-410c2221c491",
+      "first_name": "George",
+      "last_name": "Skaf",
+      "dob": "Unknown",
+      "parents": [
+        "9000cb54-e2ec-46a4-91b4-7999fa8c99e0",
+        "d89d5daf-863d-4c5c-b15a-88d39cd9f0a1"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "d72b373b-8988-46cb-9a9f-da6464556d85",
+      "first_name": "David",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [
+        "786a5c62-e4ea-4f37-8dba-2ab986edf075",
+        "271ec9ca-6134-4e63-bf0b-458d1c176bc8"
+      ],
+      "children": [
+        "19a0ee96-b288-4718-9475-53f2c75e307d",
+        "4d46e062-5e88-43a7-affc-157e4f485f5a"
+      ],
+      "partner": "52a591ea-66c7-4f2e-a05e-5613f81d7398"
+    },
+    {
+      "id": "c289d324-08f4-43a5-99c3-41b0bc111d30",
+      "first_name": "Cecila",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [
+        "786a5c62-e4ea-4f37-8dba-2ab986edf075",
+        "271ec9ca-6134-4e63-bf0b-458d1c176bc8"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "060c2768-83f3-414f-9253-8da0aa04b050",
+      "first_name": "Paul",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [
+        "786a5c62-e4ea-4f37-8dba-2ab986edf075",
+        "271ec9ca-6134-4e63-bf0b-458d1c176bc8"
+      ],
+      "children": [],
+      "partner": "1faee89b-41f8-4df1-abf8-5dfb74db132e"
+    },
+    {
+      "id": "52a591ea-66c7-4f2e-a05e-5613f81d7398",
+      "first_name": "Rima",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [
+        "19a0ee96-b288-4718-9475-53f2c75e307d",
+        "4d46e062-5e88-43a7-affc-157e4f485f5a"
+      ],
+      "partner": "d72b373b-8988-46cb-9a9f-da6464556d85"
+    },
+    {
+      "id": "19a0ee96-b288-4718-9475-53f2c75e307d",
+      "first_name": "Anthony",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [
+        "d72b373b-8988-46cb-9a9f-da6464556d85",
+        "52a591ea-66c7-4f2e-a05e-5613f81d7398"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "4d46e062-5e88-43a7-affc-157e4f485f5a",
+      "first_name": "Dianna",
+      "last_name": "Mansour",
+      "dob": "Unknown",
+      "parents": [
+        "d72b373b-8988-46cb-9a9f-da6464556d85",
+        "52a591ea-66c7-4f2e-a05e-5613f81d7398"
+      ],
+      "children": [],
+      "partner": null
+    },
+    {
+      "id": "1faee89b-41f8-4df1-abf8-5dfb74db132e",
+      "first_name": "Jake",
+      "last_name": "Bowman",
+      "dob": "Unknown",
+      "parents": [],
+      "children": [],
+      "partner": "060c2768-83f3-414f-9253-8da0aa04b050"
+    }
+  ]
+}
