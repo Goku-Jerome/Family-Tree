@@ -1,9 +1,12 @@
 import uuid
 
 class Person:
-    def __init__(self, name, person_id=None):
+    def __init__(self, first_name, last_name, dob=None, person_id=None):
         self.id = person_id or str(uuid.uuid4())
-        self.name = name.strip() if name and name.strip() else "Unnamed"
+        self.first_name = first_name.strip() if first_name and first_name.strip() else "Unnamed"
+        self.last_name = last_name.strip() if last_name and last_name.strip() else "Unnamed"
+        self.name = f"{self.first_name} {self.last_name}".strip()
+        self.dob = dob.strip() if dob and dob.strip() else "Unknown"
         self.parents = []
         self.children = []
         self.partner = None
@@ -39,4 +42,8 @@ class Person:
         partner.partner = self
 
     def describe(self):
-        return f"{self.name} (Parents: {len(self.parents)}, Children: {len(self.children)}, Partner: {self.partner.name if self.partner else 'None'})"
+        return (
+            f"{self.name} (DOB: {self.dob}, ID: {self.id}) "
+            f"Parents: {len(self.parents)}, Children: {len(self.children)}, "
+            f"Partner: {self.partner.name if self.partner else 'None'}"
+        )

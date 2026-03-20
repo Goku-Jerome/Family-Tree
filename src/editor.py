@@ -53,6 +53,39 @@ class NodeItem(QGraphicsRectItem):
             self.callback(self.person)
 
 
+class PanGraphicsView(QGraphicsView):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self._panning = False
+        self._pan_start = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            self._panning = True
+            self._pan_start = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._panning and self._pan_start is not None:
+            delta = event.position() - self._pan_start
+            self._pan_start = event.position()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton and self._panning:
+            self._panning = False
+            self._pan_start = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            super().mouseReleaseEvent(event)
+
+
 class TreeEditor(QMainWindow):
     closed = pyqtSignal()
 
@@ -76,7 +109,7 @@ class TreeEditor(QMainWindow):
         self.main_layout.addWidget(self.title_label)
 
         top_control = QHBoxLayout()
-        self.create_root_button = QPushButton("Create First Person")
+        self.create_root_button = QPushButton("Create Person (First, Last, D.O.B)")
         self.create_root_button.clicked.connect(self.create_root_person)
         self.create_root_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -91,8 +124,11 @@ class TreeEditor(QMainWindow):
 
         graph_layout = QHBoxLayout()
         self.scene = QGraphicsScene()
-        self.view = QGraphicsView(self.scene)
+        self.view = PanGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
 
         graph_layout.addWidget(self.view, stretch=3)
 
@@ -155,7 +191,7 @@ class TreeEditor(QMainWindow):
 
         self.person_selector.addItem("Select person", None)
         for p in self.people.values():
-            self.person_selector.addItem(p.name, p.id)
+            self.person_selector.addItem(f"{p.name} ({p.id[:8]})", p.id)
 
         if selected_id is not None:
             for i in range(self.person_selector.count()):
@@ -180,7 +216,7 @@ class TreeEditor(QMainWindow):
         if not self.current_person:
             return
 
-        self.name_label.setText(f"Name: {self.current_person.name}")
+        self.name_label.setText(f"Name: {self.current_person.name} | DOB: {self.current_person.dob} | ID: {self.current_person.id[:8]}")
 
         parents = ", ".join(p.name for p in self.current_person.parents) or "None"
         children = ", ".join(c.name for c in self.current_person.children) or "None"
@@ -195,10 +231,19 @@ class TreeEditor(QMainWindow):
             self.update_ui_state()
 
     def create_person_dialog(self, title):
-        name, ok = QInputDialog.getText(self, title, "Enter person name:")
-        if ok and name.strip():
-            return Person(name=name.strip())
-        return None
+        first_name, ok = QInputDialog.getText(self, title, "First name:")
+        if not ok or not first_name.strip():
+            return None
+
+        last_name, ok = QInputDialog.getText(self, title, "Last name:")
+        if not ok or not last_name.strip():
+            return None
+
+        dob, ok = QInputDialog.getText(self, title, "Date of birth (YYYY-MM-DD or text):")
+        if not ok or not dob.strip():
+            dob = "Unknown"
+
+        return Person(first_name=first_name.strip(), last_name=last_name.strip(), dob=dob.strip())
 
     def choose_existing_person(self, exclude=None):
         candidates = [p for p in self.people.values() if p is not exclude]
@@ -206,11 +251,11 @@ class TreeEditor(QMainWindow):
             QMessageBox.information(self, "No Existing Person", "No existing person available. Create a new one instead.")
             return None
 
-        items = [p.name for p in candidates]
-        item, ok = QInputDialog.getItem(self, "Choose Person", "Select existing person:", items, editable=False)
+        options = [f"{p.name} ({p.id[:8]})" for p in candidates]
+        item, ok = QInputDialog.getItem(self, "Choose Person", "Select existing person:", options, editable=False)
         if ok and item:
             for p in candidates:
-                if p.name == item:
+                if item.startswith(p.name):
                     return p
         return None
 
@@ -298,7 +343,12 @@ class TreeEditor(QMainWindow):
         if self.current_person and self.current_person.id in self.node_items:
             self.node_items[self.current_person.id].update_style(True)
 
-        self.view.fitInView(self.scene.itemsBoundingRect().adjusted(-50, -50, 50, 50), Qt.AspectRatioMode.KeepAspectRatio)
+        # Keep the scene scrollable and center on the selected person
+        bounds = self.scene.itemsBoundingRect().adjusted(-100, -100, 100, 100)
+        self.scene.setSceneRect(bounds)
+
+        if self.current_person and self.current_person.id in self.node_items:
+            self.view.centerOn(self.node_items[self.current_person.id])
 
     def find_root_person(self):
         candidates = [p for p in self.people.values() if not p.parents]
