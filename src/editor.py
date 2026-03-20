@@ -1,0 +1,346 @@
+import sys
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QMessageBox,
+    QInputDialog,
+    QSizePolicy,
+    QGraphicsView,
+    QGraphicsScene,
+    QGraphicsRectItem,
+    QGraphicsTextItem,
+)
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF
+from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
+from person import Person
+
+
+class NodeItem(QGraphicsRectItem):
+    WIDTH = 130
+    HEIGHT = 60
+
+    def __init__(self, person, callback):
+        super().__init__(0, 0, NodeItem.WIDTH, NodeItem.HEIGHT)
+        self.person = person
+        self.callback = callback
+
+        self.setBrush(QBrush(Qt.GlobalColor.white))
+        self.setPen(QPen(Qt.GlobalColor.darkBlue, 2))
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
+
+        self.label = QGraphicsTextItem(self.person.name, self)
+        self.label.setDefaultTextColor(Qt.GlobalColor.black)
+        self.label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+
+        bounds = self.label.boundingRect()
+        self.label.setPos((NodeItem.WIDTH - bounds.width()) / 2, (NodeItem.HEIGHT - bounds.height()) / 2)
+
+    def update_style(self, selected=False):
+        if selected:
+            self.setPen(QPen(Qt.GlobalColor.red, 3))
+        else:
+            self.setPen(QPen(Qt.GlobalColor.darkBlue, 2))
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if callable(self.callback):
+            self.callback(self.person)
+
+
+class TreeEditor(QMainWindow):
+    closed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Family Tree Editor")
+        self.resize(1100, 700)
+
+        self.people = {}
+        self.current_person = None
+        self.node_items = {}
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        self.main_layout = QVBoxLayout()
+        central_widget.setLayout(self.main_layout)
+
+        self.title_label = QLabel("Family Tree Editor")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setFont(QFont("Arial", 22, QFont.Weight.Bold))
+        self.main_layout.addWidget(self.title_label)
+
+        top_control = QHBoxLayout()
+        self.create_root_button = QPushButton("Create First Person")
+        self.create_root_button.clicked.connect(self.create_root_person)
+        self.create_root_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        top_control.addWidget(self.create_root_button)
+
+        top_control.addWidget(QLabel("Current Person:"))
+        self.person_selector = QComboBox()
+        self.person_selector.currentIndexChanged.connect(self.on_person_selected)
+        top_control.addWidget(self.person_selector)
+
+        self.main_layout.addLayout(top_control)
+
+        graph_layout = QHBoxLayout()
+        self.scene = QGraphicsScene()
+        self.view = QGraphicsView(self.scene)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        graph_layout.addWidget(self.view, stretch=3)
+
+        info_panel = QVBoxLayout()
+        self.name_label = QLabel("Name: -")
+        self.relations_label = QLabel("Relations: -")
+        info_panel.addWidget(self.name_label)
+        info_panel.addWidget(self.relations_label)
+        info_panel.addStretch(1)
+
+        graph_layout.addLayout(info_panel, stretch=1)
+
+        self.main_layout.addLayout(graph_layout)
+
+        self.buttons_layout = QHBoxLayout()
+        self.parent_button = QPushButton("Add Parent")
+        self.parent_button.clicked.connect(lambda: self.manage_relationship("parent"))
+        self.child_button = QPushButton("Add Child")
+        self.child_button.clicked.connect(lambda: self.manage_relationship("child"))
+        self.partner_button = QPushButton("Add/Set Partner")
+        self.partner_button.clicked.connect(lambda: self.manage_relationship("partner"))
+
+        self.buttons_layout.addWidget(self.parent_button)
+        self.buttons_layout.addWidget(self.child_button)
+        self.buttons_layout.addWidget(self.partner_button)
+
+        self.main_layout.addLayout(self.buttons_layout)
+
+        self.update_ui_state()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        window_size = min(self.width(), self.height())
+        self.title_label.setFont(QFont("Arial", max(18, int(window_size * 0.03)), QFont.Weight.Bold))
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def update_ui_state(self):
+        has_person = bool(self.people)
+        self.person_selector.setEnabled(has_person)
+        self.parent_button.setEnabled(self.current_person is not None)
+        self.child_button.setEnabled(self.current_person is not None)
+        self.partner_button.setEnabled(self.current_person is not None)
+
+        self.refresh_person_selector()
+        self.refresh_graph()
+
+        if self.current_person:
+            self.display_current_person()
+        else:
+            self.name_label.setText("Name: -")
+            self.relations_label.setText("Relations: -")
+
+    def refresh_person_selector(self):
+        selected_id = self.current_person.id if self.current_person else None
+        self.person_selector.blockSignals(True)
+        self.person_selector.clear()
+
+        self.person_selector.addItem("Select person", None)
+        for p in self.people.values():
+            self.person_selector.addItem(p.name, p.id)
+
+        if selected_id is not None:
+            for i in range(self.person_selector.count()):
+                if self.person_selector.itemData(i) == selected_id:
+                    self.person_selector.setCurrentIndex(i)
+                    break
+
+        self.person_selector.blockSignals(False)
+
+    def on_person_selected(self):
+        selected_id = self.person_selector.currentData()
+        if selected_id and selected_id in self.people:
+            self.set_current_person(self.people[selected_id])
+
+    def set_current_person(self, person):
+        self.current_person = person
+        for node in self.node_items.values():
+            node.update_style(selected=(node.person is person))
+        self.update_ui_state()
+
+    def display_current_person(self):
+        if not self.current_person:
+            return
+
+        self.name_label.setText(f"Name: {self.current_person.name}")
+
+        parents = ", ".join(p.name for p in self.current_person.parents) or "None"
+        children = ", ".join(c.name for c in self.current_person.children) or "None"
+        partner = self.current_person.partner.name if self.current_person.partner else "None"
+        self.relations_label.setText(f"Parents: {parents}\nChildren: {children}\nPartner: {partner}")
+
+    def create_root_person(self):
+        new_person = self.create_person_dialog("Root person")
+        if new_person:
+            self.people[new_person.id] = new_person
+            self.set_current_person(new_person)
+            self.update_ui_state()
+
+    def create_person_dialog(self, title):
+        name, ok = QInputDialog.getText(self, title, "Enter person name:")
+        if ok and name.strip():
+            return Person(name=name.strip())
+        return None
+
+    def choose_existing_person(self, exclude=None):
+        candidates = [p for p in self.people.values() if p is not exclude]
+        if not candidates:
+            QMessageBox.information(self, "No Existing Person", "No existing person available. Create a new one instead.")
+            return None
+
+        items = [p.name for p in candidates]
+        item, ok = QInputDialog.getItem(self, "Choose Person", "Select existing person:", items, editable=False)
+        if ok and item:
+            for p in candidates:
+                if p.name == item:
+                    return p
+        return None
+
+    def manage_relationship(self, relationship):
+        if not self.current_person:
+            return
+
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Relationship Action",
+            "Choose action:",
+            ["Create New Person", "Add Existing Person"],
+            editable=False,
+        )
+
+        if not ok:
+            return
+
+        target = None
+        if choice == "Create New Person":
+            target = self.create_person_dialog(f"Create {relationship.title()}")
+            if target:
+                self.people[target.id] = target
+        elif choice == "Add Existing Person":
+            target = self.choose_existing_person(exclude=self.current_person)
+
+        if not target:
+            return
+
+        if relationship == "parent":
+            self.current_person.add_parent(target)
+        elif relationship == "child":
+            self.current_person.add_child(target)
+        elif relationship == "partner":
+            self.current_person.set_partner(target)
+
+        self.set_current_person(self.current_person)
+
+    def refresh_graph(self):
+        self.scene.clear()
+        self.node_items = {}
+
+        if not self.people:
+            self.scene.addText("Create or load a person to start your tree.")
+            return
+
+        # Simple mental graph by levels (parents above children; partners side-by-side)
+        root = self.find_root_person()
+        order = self.compute_levels(root)
+
+        max_per_level = max(len(r) for r in order.values())
+        h_space = 180
+        v_space = 150
+
+        for level, persons in order.items():
+            line_count = len(persons)
+            for i, person in enumerate(persons):
+                x = (i + 1) * h_space - (line_count * 0.5 * h_space)
+                y = level * v_space
+                node = NodeItem(person, callback=self.set_current_person)
+                node.setPos(x, y)
+                self.scene.addItem(node)
+                self.node_items[person.id] = node
+
+        # draw connections
+        for person in self.people.values():
+            p_item = self.node_items.get(person.id)
+            if not p_item:
+                continue
+            p_center = p_item.sceneBoundingRect().center()
+            for child in person.children:
+                child_item = self.node_items.get(child.id)
+                if child_item:
+                    c_center = child_item.sceneBoundingRect().center()
+                    line = self.scene.addLine(p_center.x(), p_center.y() + NodeItem.HEIGHT / 2, c_center.x(), c_center.y() - NodeItem.HEIGHT / 2, QPen(Qt.GlobalColor.darkGreen, 2))
+                    line.setZValue(-1)
+            if person.partner:
+                partner_item = self.node_items.get(person.partner.id)
+                if partner_item:
+                    partner_center = partner_item.sceneBoundingRect().center()
+                    if person.id < person.partner.id:
+                        self.scene.addLine(p_center.x() + NodeItem.WIDTH / 2, p_center.y() + NodeItem.HEIGHT / 2, partner_center.x() - NodeItem.WIDTH / 2, partner_center.y() + NodeItem.HEIGHT / 2, QPen(Qt.GlobalColor.blue, 2, Qt.PenStyle.DashLine))
+
+        # highlight selected node
+        if self.current_person and self.current_person.id in self.node_items:
+            self.node_items[self.current_person.id].update_style(True)
+
+        self.view.fitInView(self.scene.itemsBoundingRect().adjusted(-50, -50, 50, 50), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def find_root_person(self):
+        candidates = [p for p in self.people.values() if not p.parents]
+        if candidates:
+            return candidates[0]
+        return next(iter(self.people.values()))
+
+    def compute_levels(self, root):
+        levels = {}
+        visited = set()
+        queue = [(root, 0)]
+
+        while queue:
+            person, level = queue.pop(0)
+            if person.id in visited:
+                continue
+            visited.add(person.id)
+
+            levels.setdefault(level, []).append(person)
+
+            for child in person.children:
+                if child.id not in visited:
+                    queue.append((child, level + 1))
+
+            # partner stays on same level, if not visited
+            if person.partner and person.partner.id not in visited:
+                queue.append((person.partner, level))
+
+            # parents show above
+            for parent in person.parents:
+                if parent.id not in visited:
+                    queue.append((parent, max(0, level - 1)))
+
+        # ensure each level has stable order
+        for lvl in levels:
+            levels[lvl] = list(dict.fromkeys(levels[lvl]))
+
+        return levels
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = TreeEditor()
+    window.show()
+    sys.exit(app.exec())
