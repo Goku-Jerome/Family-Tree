@@ -15,6 +15,11 @@ from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGraphicsRectItem,
     QGraphicsTextItem,
+    QDialog, 
+    QFormLayout, 
+    QLineEdit, 
+    QDialogButtonBox, 
+    QVBoxLayout    
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF
 from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
@@ -84,6 +89,43 @@ class PanGraphicsView(QGraphicsView):
             self.setCursor(Qt.CursorShape.ArrowCursor)
         else:
             super().mouseReleaseEvent(event)
+
+
+class PersonDialog(QDialog):
+    def __init__(self, parent=None, title = "New Person"):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        
+        # 1. Create Layouts
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        
+        # 2. Add Input Fields
+        self.first_name_input = QLineEdit()
+        self.last_name_input = QLineEdit()
+        self.dob_input = QLineEdit()
+        self.dob_input.setPlaceholderText("YYYY-MM-DD or text")
+        
+        form_layout.addRow("First Name:", self.first_name_input)
+        form_layout.addRow("Last Name:", self.last_name_input)
+        form_layout.addRow("Date of Birth:", self.dob_input)
+        
+        # 3. Add Standard Buttons (OK/Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        
+        layout.addLayout(form_layout)
+        layout.addWidget(buttons)
+
+    def get_data(self):
+        return {
+            "first_name": self.first_name_input.text().strip(),
+            "last_name": self.last_name_input.text().strip(),
+            "dob": self.dob_input.text().strip() or "Unknown"
+        }
 
 
 class TreeEditor(QMainWindow):
@@ -231,19 +273,22 @@ class TreeEditor(QMainWindow):
             self.update_ui_state()
 
     def create_person_dialog(self, title):
-        first_name, ok = QInputDialog.getText(self, title, "First name:")
-        if not ok or not first_name.strip():
-            return None
+        dialog = PersonDialog(self, title)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_data()
 
-        last_name, ok = QInputDialog.getText(self, title, "Last name:")
-        if not ok or not last_name.strip():
-            return None
-
-        dob, ok = QInputDialog.getText(self, title, "Date of birth (YYYY-MM-DD or text):")
-        if not ok or not dob.strip():
-            dob = "Unknown"
-
-        return Person(first_name=first_name.strip(), last_name=last_name.strip(), dob=dob.strip())
+        if not data["first_name"]:
+            data["first_name"] = None
+        if not data["last_name"]:
+            data["last_name"] = None
+        if not data["dob"]:
+            data["dob"] = None
+        
+        return Person(
+            first_name=data["first_name"], 
+            last_name=data["last_name"], 
+            dob=data["dob"]
+        )
 
     def choose_existing_person(self, exclude=None):
         candidates = [p for p in self.people.values() if p is not exclude]
@@ -258,6 +303,51 @@ class TreeEditor(QMainWindow):
                 if item.startswith(p.name):
                     return p
         return None
+
+    def get_visible_people(self):
+        # If no one is selected, show everyone
+        if not self.current_person:
+            return set(self.people.values())
+
+        blood_relatives = set()
+        
+        # Step 1: Find all ancestors of the focus person (trace bloodline UP)
+        ancestors = set()
+        queue = [self.current_person]
+        while queue:
+            curr = queue.pop(0)
+            if curr not in ancestors:
+                ancestors.add(curr)
+                queue.extend(curr.parents)
+
+        # Step 2: Find all descendants of all ancestors (trace bloodline DOWN)
+        # This naturally captures siblings, aunts, uncles, cousins, etc.
+        roots = list(ancestors) if ancestors else [self.current_person]
+        queue = roots.copy()
+        while queue:
+            curr = queue.pop(0)
+            if curr not in blood_relatives:
+                blood_relatives.add(curr)
+                queue.extend(curr.children)
+
+        # Step 3: Apply the strict visibility boundaries
+        visible = set()
+        for person in blood_relatives:
+            visible.add(person)
+            visible.update(person.parents) # Parents of blood relatives are allowed
+            if person.partner:
+                visible.add(person.partner) # Spouses of blood relatives are allowed
+
+        # Focus person's spouse gets special rules: add their parents and siblings
+        if self.current_person.partner:
+            spouse = self.current_person.partner
+            visible.add(spouse)
+            visible.update(spouse.parents)
+            for p in spouse.parents:
+                visible.update(p.children) # Siblings of the spouse
+                
+        return visible
+
 
     def manage_relationship(self, relationship):
         if not self.current_person:
@@ -287,10 +377,26 @@ class TreeEditor(QMainWindow):
 
         if relationship == "parent":
             self.current_person.add_parent(target)
+            target.add_child(self.current_person) # Ensure bidirectional link
+            
+            # If the person now has 2 parents, automatically make them partners
+            if len(self.current_person.parents) == 2:
+                p1, p2 = list(self.current_person.parents)[:2]
+                p1.set_partner(p2)
+                p2.set_partner(p1)
+                
         elif relationship == "child":
             self.current_person.add_child(target)
+            target.add_parent(self.current_person)
+            
+            # If the current person has a partner, add the child to the partner too
+            if self.current_person.partner:
+                self.current_person.partner.add_child(target)
+                target.add_parent(self.current_person.partner)
+                
         elif relationship == "partner":
             self.current_person.set_partner(target)
+            target.set_partner(self.current_person) # Ensure bidirectional link
 
         self.set_current_person(self.current_person)
 
@@ -302,61 +408,208 @@ class TreeEditor(QMainWindow):
             self.scene.addText("Create or load a person to start your tree.")
             return
 
-        # Simple mental graph by levels (parents above children; partners side-by-side)
-        root = self.find_root_person()
-        order = self.compute_levels(root)
+        # Fetch pruned list
+        visible_people = self.get_visible_people()
+        if not visible_people:
+            return
 
-        max_per_level = max(len(r) for r in order.values())
+        root = self.find_root_person(visible_people)
+        order = self.compute_levels(root, visible_people)
+
+        # --- 1. Compute 'ideal X' positions (Filtered) ---
+        ideal_x = {}
+        anchor = self.current_person if self.current_person else root
+        ideal_x[anchor.id] = 0.0
+
+        queue = [anchor]
+        while queue:
+            curr = queue.pop(0)
+            cx = ideal_x[curr.id]
+            
+            if curr.partner and curr.partner in visible_people and curr.partner.id not in ideal_x:
+                if curr.id < curr.partner.id:
+                    ideal_x[curr.partner.id] = cx + 2.0
+                else:
+                    ideal_x[curr.partner.id] = cx - 2.0
+                queue.append(curr.partner)
+                
+            shift = 0.0
+            if curr.partner and curr.partner in visible_people and curr.partner.id in ideal_x:
+                if cx < ideal_x[curr.partner.id]:
+                    shift = -2.0  
+                else:
+                    shift = 2.0   
+                    
+            unplaced_parents = [p for p in curr.parents if p in visible_people and p.id not in ideal_x]
+            if len(unplaced_parents) == 1:
+                ideal_x[unplaced_parents[0].id] = cx + shift
+                queue.append(unplaced_parents[0])
+            elif len(unplaced_parents) >= 2:
+                unplaced_parents.sort(key=lambda p: p.id)
+                ideal_x[unplaced_parents[0].id] = cx + shift - 1.0
+                ideal_x[unplaced_parents[1].id] = cx + shift + 1.0
+                queue.extend(unplaced_parents[:2])
+                
+            unplaced_children = [c for c in curr.children if c in visible_people and c.id not in ideal_x]
+            if unplaced_children:
+                joint_children = []
+                single_children = []
+                
+                if curr.partner and curr.partner in visible_people:
+                    for c in unplaced_children:
+                        if c in curr.partner.children:
+                            joint_children.append(c)
+                        else:
+                            single_children.append(c)
+                else:
+                    single_children = unplaced_children
+                    
+                if joint_children and curr.partner and curr.partner.id in ideal_x:
+                    center_x = (cx + ideal_x[curr.partner.id]) / 2.0
+                    start_x = center_x - (len(joint_children) - 1) * 1.0
+                    for i, c in enumerate(sorted(joint_children, key=lambda x: x.id)):
+                        ideal_x[c.id] = start_x + (i * 2.0)
+                        queue.append(c)
+                        
+                if single_children:
+                    center_x = cx + (shift * 0.5) 
+                    start_x = center_x - (len(single_children) - 1) * 1.0
+                    for i, c in enumerate(sorted(single_children, key=lambda x: x.id)):
+                        ideal_x[c.id] = start_x + (i * 2.0)
+                        queue.append(c)
+
+        # --- 2. Layout nodes using the computed ideal positions ---
         h_space = 180
         v_space = 150
 
         for level, persons in order.items():
-            line_count = len(persons)
-            for i, person in enumerate(persons):
+            groups = []
+            processed = set()
+
+            for p in persons:
+                if p.id in processed:
+                    continue
+                
+                processed.add(p.id)
+                
+                if p.partner and p.partner in persons and p.partner.id not in processed:
+                    if p.id < p.partner.id:
+                        group = [p, p.partner]
+                    else:
+                        group = [p.partner, p]
+                    processed.add(p.partner.id)
+                else:
+                    group = [p]
+                
+                groups.append(group)
+            
+            groups.sort(key=lambda g: sum(ideal_x.get(p.id, 0) for p in g) / len(g))
+            
+            sorted_persons = [p for g in groups for p in g]
+            line_count = len(sorted_persons)
+            
+            for i, person in enumerate(sorted_persons):
                 x = (i + 1) * h_space - (line_count * 0.5 * h_space)
                 y = level * v_space
+                
                 node = NodeItem(person, callback=self.set_current_person)
                 node.setPos(x, y)
                 self.scene.addItem(node)
                 self.node_items[person.id] = node
 
-        # draw connections
-        for person in self.people.values():
+        # --- 3. DRAWING LOGIC (Lines & Relations - Filtered) ---
+        drawn_partner_lines = set()
+        partner_midpoints = {}
+        
+        for person in visible_people:
+            if person.partner and person.partner in visible_people:
+                pair_key = frozenset([person.id, person.partner.id])
+                if pair_key not in drawn_partner_lines:
+                    drawn_partner_lines.add(pair_key)
+                    p_item = self.node_items.get(person.id)
+                    partner_item = self.node_items.get(person.partner.id)
+                    
+                    if p_item and partner_item:
+                        p_center = p_item.sceneBoundingRect().center()
+                        partner_center = partner_item.sceneBoundingRect().center()
+                        
+                        self.scene.addLine(
+                            p_center.x(), p_center.y(), 
+                            partner_center.x(), partner_center.y(), 
+                            QPen(Qt.GlobalColor.blue, 2, Qt.PenStyle.DashLine)
+                        )
+                        
+                        mid_x = (p_center.x() + partner_center.x()) / 2
+                        mid_y = (p_center.y() + partner_center.y()) / 2
+                        partner_midpoints[pair_key] = (mid_x, mid_y)
+
+        drawn_child_lines = set()
+
+        for person in visible_people:
             p_item = self.node_items.get(person.id)
             if not p_item:
                 continue
-            p_center = p_item.sceneBoundingRect().center()
+                
             for child in person.children:
+                if child not in visible_people:
+                    continue
+                
                 child_item = self.node_items.get(child.id)
-                if child_item:
-                    c_center = child_item.sceneBoundingRect().center()
-                    line = self.scene.addLine(p_center.x(), p_center.y() + NodeItem.HEIGHT / 2, c_center.x(), c_center.y() - NodeItem.HEIGHT / 2, QPen(Qt.GlobalColor.darkGreen, 2))
-                    line.setZValue(-1)
-            if person.partner:
-                partner_item = self.node_items.get(person.partner.id)
-                if partner_item:
-                    partner_center = partner_item.sceneBoundingRect().center()
-                    if person.id < person.partner.id:
-                        self.scene.addLine(p_center.x() + NodeItem.WIDTH / 2, p_center.y() + NodeItem.HEIGHT / 2, partner_center.x() - NodeItem.WIDTH / 2, partner_center.y() + NodeItem.HEIGHT / 2, QPen(Qt.GlobalColor.blue, 2, Qt.PenStyle.DashLine))
+                if not child_item:
+                    continue
+                    
+                c_center = child_item.sceneBoundingRect().center()
+                child_top_y = c_center.y() - NodeItem.HEIGHT / 2
+                
+                is_joint_child = False
+                pair_key = None
+                
+                if person.partner and person.partner in visible_people and child in person.partner.children:
+                    is_joint_child = True
+                    pair_key = frozenset([person.id, person.partner.id])
 
-        # highlight selected node
+                if is_joint_child and pair_key in partner_midpoints:
+                    if (pair_key, child.id) not in drawn_child_lines:
+                        drawn_child_lines.add((pair_key, child.id))
+                        mid_x, mid_y = partner_midpoints[pair_key]
+                        
+                        line = self.scene.addLine(
+                            mid_x, mid_y, 
+                            c_center.x(), child_top_y, 
+                            QPen(Qt.GlobalColor.darkGreen, 2)
+                        )
+                        line.setZValue(-1)
+                else:
+                    parent_key = (person.id, child.id)
+                    if parent_key not in drawn_child_lines:
+                        drawn_child_lines.add(parent_key)
+                        p_center = p_item.sceneBoundingRect().center()
+                        parent_bottom_y = p_center.y() + NodeItem.HEIGHT / 2
+                        
+                        line = self.scene.addLine(
+                            p_center.x(), parent_bottom_y, 
+                            c_center.x(), child_top_y, 
+                            QPen(Qt.GlobalColor.darkGreen, 2)
+                        )
+                        line.setZValue(-1)
+
         if self.current_person and self.current_person.id in self.node_items:
             self.node_items[self.current_person.id].update_style(True)
 
-        # Keep the scene scrollable and center on the selected person
         bounds = self.scene.itemsBoundingRect().adjusted(-100, -100, 100, 100)
         self.scene.setSceneRect(bounds)
 
         if self.current_person and self.current_person.id in self.node_items:
             self.view.centerOn(self.node_items[self.current_person.id])
 
-    def find_root_person(self):
-        candidates = [p for p in self.people.values() if not p.parents]
+
+    def find_root_person(self, visible_people):
+        candidates = [p for p in visible_people if not any(parent in visible_people for parent in p.parents)]
         if candidates:
             return candidates[0]
-        return next(iter(self.people.values()))
+        return next(iter(visible_people))
 
-    def compute_levels(self, root):
+    def compute_levels(self, root, visible_people):
         levels = {}
         visited = set()
         queue = [(root, 0)]
@@ -370,23 +623,22 @@ class TreeEditor(QMainWindow):
             levels.setdefault(level, []).append(person)
 
             for child in person.children:
-                if child.id not in visited:
+                if child in visible_people and child.id not in visited:
                     queue.append((child, level + 1))
 
-            # partner stays on same level, if not visited
-            if person.partner and person.partner.id not in visited:
+            if person.partner and person.partner in visible_people and person.partner.id not in visited:
                 queue.append((person.partner, level))
 
-            # parents show above
             for parent in person.parents:
-                if parent.id not in visited:
-                    queue.append((parent, max(0, level - 1)))
+                if parent in visible_people and parent.id not in visited:
+                    queue.append((parent, level - 1))
 
-        # ensure each level has stable order
         for lvl in levels:
             levels[lvl] = list(dict.fromkeys(levels[lvl]))
 
         return levels
+
+
 
 
 if __name__ == "__main__":

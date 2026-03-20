@@ -1,7 +1,7 @@
 import uuid
 
 class Person:
-    def __init__(self, first_name, last_name, dob=None, person_id=None):
+    def __init__(self, first_name="Unnamed", last_name="Unnamed", dob=None, person_id=None):
         self.id = person_id or str(uuid.uuid4())
         self.first_name = first_name.strip() if first_name and first_name.strip() else "Unnamed"
         self.last_name = last_name.strip() if last_name and last_name.strip() else "Unnamed"
