@@ -1,3 +1,7 @@
+# editor.py
+# This module is the main family tree editor window and drawing engine.
+# It creates a visual graph of people with interactive selection and actions.
+
 import sys
 import json
 import xml.etree.ElementTree as ET
@@ -31,6 +35,7 @@ from person import Person
 
 
 class NodeItem(QGraphicsRectItem):
+    """A single rectangle representing one person in the visualization."""
     WIDTH = 130
     HEIGHT = 60
 
@@ -51,18 +56,21 @@ class NodeItem(QGraphicsRectItem):
         self.label.setPos((NodeItem.WIDTH - bounds.width()) / 2, (NodeItem.HEIGHT - bounds.height()) / 2)
 
     def update_style(self, selected=False):
+        """Visually mark the selected node with a red outline, otherwise normal blue."""
         if selected:
             self.setPen(QPen(Qt.GlobalColor.red, 3))
         else:
             self.setPen(QPen(Qt.GlobalColor.darkBlue, 2))
 
     def mousePressEvent(self, event):
+        """When user clicks on this person box, notify TreeEditor."""
         super().mousePressEvent(event)
         if callable(self.callback):
             self.callback(self.person)
 
 
 class PanGraphicsView(QGraphicsView):
+    """Custom graphics view that supports panning with right mouse button."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -70,6 +78,7 @@ class PanGraphicsView(QGraphicsView):
         self._pan_start = None
 
     def mousePressEvent(self, event):
+        """Start panning mode on right-click, otherwise act normally."""
         if event.button() == Qt.MouseButton.RightButton:
             self._panning = True
             self._pan_start = event.position()
@@ -78,6 +87,7 @@ class PanGraphicsView(QGraphicsView):
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        """Move the view while right mouse is held down."""
         if self._panning and self._pan_start is not None:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
@@ -87,6 +97,7 @@ class PanGraphicsView(QGraphicsView):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        """Stop panning when the right mouse button is released."""
         if event.button() == Qt.MouseButton.RightButton and self._panning:
             self._panning = False
             self._pan_start = None
@@ -96,6 +107,7 @@ class PanGraphicsView(QGraphicsView):
 
 
 class PersonDialog(QDialog):
+    """A simple popup dialog that asks for person details."""
     def __init__(self, parent=None, title = "New Person"):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -125,6 +137,7 @@ class PersonDialog(QDialog):
         layout.addWidget(buttons)
 
     def get_data(self):
+        """Return the entered form data as a simple dictionary."""
         return {
             "first_name": self.first_name_input.text().strip(),
             "last_name": self.last_name_input.text().strip(),
@@ -133,6 +146,7 @@ class PersonDialog(QDialog):
 
 
 class TreeEditor(QMainWindow):
+    """Main application window where you create/modify the family tree graph."""
     closed = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -225,6 +239,7 @@ class TreeEditor(QMainWindow):
         super().closeEvent(event)
 
     def update_ui_state(self):
+        """Refresh the controls and display after data changes."""
         has_person = bool(self.people)
         self.person_selector.setEnabled(has_person)
         self.parent_button.setEnabled(self.current_person is not None)
@@ -241,6 +256,7 @@ class TreeEditor(QMainWindow):
             self.relations_label.setText("Relations: -")
 
     def refresh_person_selector(self):
+        """Update the dropdown list so it reflects all known people."""
         selected_id = self.current_person.id if self.current_person else None
         self.person_selector.blockSignals(True)
         self.person_selector.clear()
@@ -258,17 +274,20 @@ class TreeEditor(QMainWindow):
         self.person_selector.blockSignals(False)
 
     def on_person_selected(self):
+        """Callback for dropdown selection changes."""
         selected_id = self.person_selector.currentData()
         if selected_id and selected_id in self.people:
             self.set_current_person(self.people[selected_id])
 
     def set_current_person(self, person):
+        """Mark one person as active and refresh selection highlighting."""
         self.current_person = person
         for node in self.node_items.values():
             node.update_style(selected=(node.person is person))
         self.update_ui_state()
 
     def display_current_person(self):
+        """Display the selected person's name and family relationships in the side panel."""
         if not self.current_person:
             return
 
@@ -280,6 +299,7 @@ class TreeEditor(QMainWindow):
         self.relations_label.setText(f"Parents: {parents}\nChildren: {children}\nPartner: {partner}")
 
     def create_root_person(self):
+        """Add the first person when there is no tree yet."""
         new_person = self.create_person_dialog("Root person")
         if new_person:
             self.people[new_person.id] = new_person
@@ -287,6 +307,7 @@ class TreeEditor(QMainWindow):
             self.update_ui_state()
 
     def create_person_dialog(self, title):
+        """Show the dialog and interpret result as a Person object."""
         dialog = PersonDialog(self, title)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             data = dialog.get_data()
@@ -305,6 +326,7 @@ class TreeEditor(QMainWindow):
         )
 
     def choose_existing_person(self, exclude=None):
+        """Ask the user to pick from an existing person (except excluded one)."""
         candidates = [p for p in self.people.values() if p is not exclude]
         if not candidates:
             QMessageBox.information(self, "No Existing Person", "No existing person available. Create a new one instead.")
@@ -319,6 +341,11 @@ class TreeEditor(QMainWindow):
         return None
 
     def get_visible_people(self):
+        """Compute which people should be shown on the screen.
+
+        This keeps the display focused on the selected person and close relatives.
+        When nothing is selected, show the entire tree.
+        """
         # If no one is selected, show everyone
         if not self.current_person:
             return set(self.people.values())
@@ -364,6 +391,7 @@ class TreeEditor(QMainWindow):
 
     # --- Persistence -----------------------------------
     def build_person_data(self, person):
+        """Convert one person object into a simple dictionary for saving."""
         return {
             "id": person.id,
             "first_name": person.first_name,
@@ -375,13 +403,16 @@ class TreeEditor(QMainWindow):
         }
 
     def to_dict(self):
+        """Convert all people in the current tree into one serializable dictionary."""
         return {"people": [self.build_person_data(p) for p in self.people.values()]}
 
     def serialize_json(self, path):
+        """Save the current family tree to a JSON file."""
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
 
     def serialize_xml(self, path):
+        """Save the current family tree to an XML file."""
         root = ET.Element("family_tree")
         for person in self.people.values():
             p_elem = ET.SubElement(root, "person", attrib={"id": person.id})
@@ -403,6 +434,7 @@ class TreeEditor(QMainWindow):
         tree.write(path, encoding="utf-8", xml_declaration=True)
 
     def load_from_dict(self, data):
+        """Restore the in-memory tree from saved data structure."""
         self.people.clear()
         self.current_person = None
 
@@ -440,11 +472,13 @@ class TreeEditor(QMainWindow):
         self.update_ui_state()
 
     def deserialize_json(self, path):
+        """Load tree from JSON file on disk."""
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         self.load_from_dict(data)
 
     def deserialize_xml(self, path):
+        """Load tree from XML file on disk."""
         tree = ET.parse(path)
         root = tree.getroot()
         data = {"people": []}
@@ -473,6 +507,7 @@ class TreeEditor(QMainWindow):
         self.load_from_dict(data)
 
     def save_tree(self):
+        """Ask the user for a file path then save the tree."""
         path, selected = QFileDialog.getSaveFileName(
             self,
             "Save Family Tree",
@@ -492,6 +527,7 @@ class TreeEditor(QMainWindow):
             QMessageBox.critical(self, "Save Error", f"Failed to save family tree:\n{e}")
 
     def load_tree(self):
+        """Ask the user for a file path then load the tree."""
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Family Tree",
@@ -512,6 +548,7 @@ class TreeEditor(QMainWindow):
 
 
     def manage_relationship(self, relationship):
+        """Handle adding parent, child, or partner for the currently selected person."""
         if not self.current_person:
             return
 
@@ -563,6 +600,7 @@ class TreeEditor(QMainWindow):
         self.set_current_person(self.current_person)
 
     def refresh_graph(self):
+        """Rebuild the visual family tree graph in the scene."""
         self.scene.clear()
         self.node_items = {}
 
@@ -804,12 +842,14 @@ class TreeEditor(QMainWindow):
 
 
     def find_root_person(self, visible_people):
+        """Choose an ancestor with no parents in the visible subset to start level computations."""
         candidates = [p for p in visible_people if not any(parent in visible_people for parent in p.parents)]
         if candidates:
             return candidates[0]
         return next(iter(visible_people))
 
     def compute_levels(self, root, visible_people):
+        """Assign each person to a row number used for layout (generation levels)."""
         levels = {}
         visited = set()
         queue = [(root, 0)]
