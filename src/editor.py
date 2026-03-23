@@ -578,107 +578,143 @@ class TreeEditor(QMainWindow):
         root = self.find_root_person(visible_people)
         order = self.compute_levels(root, visible_people)
 
-        # --- 1. Compute 'ideal X' positions (Filtered) ---
-        ideal_x = {}
-        anchor = self.current_person if self.current_person else root
-        ideal_x[anchor.id] = 0.0
+        # --- 1. Group Families & Build Strict Hierarchy ---
+        # Group partners into unbreakable Family Units (Singles or Couples)
+        person_to_unit = {}
+        units = set()
+        for p in visible_people:
+            if p.id in person_to_unit: continue
+            if p.partner and p.partner in visible_people:
+                unit = tuple(sorted([p, p.partner], key=lambda x: x.id))
+                person_to_unit[p.id] = unit
+                person_to_unit[p.partner.id] = unit
+                units.add(unit)
+            else:
+                unit = (p,)
+                person_to_unit[p.id] = unit
+                units.add(unit)
 
-        queue = [anchor]
-        while queue:
-            curr = queue.pop(0)
-            cx = ideal_x[curr.id]
-            
-            if curr.partner and curr.partner in visible_people and curr.partner.id not in ideal_x:
-                if curr.id < curr.partner.id:
-                    ideal_x[curr.partner.id] = cx + 2.0
-                else:
-                    ideal_x[curr.partner.id] = cx - 2.0
-                queue.append(curr.partner)
-                
-            shift = 0.0
-            if curr.partner and curr.partner in visible_people and curr.partner.id in ideal_x:
-                if cx < ideal_x[curr.partner.id]:
-                    shift = -2.0  
-                else:
-                    shift = 2.0   
-                    
-            unplaced_parents = [p for p in curr.parents if p in visible_people and p.id not in ideal_x]
-            if len(unplaced_parents) == 1:
-                ideal_x[unplaced_parents[0].id] = cx + shift
-                queue.append(unplaced_parents[0])
-            elif len(unplaced_parents) >= 2:
-                unplaced_parents.sort(key=lambda p: p.id)
-                ideal_x[unplaced_parents[0].id] = cx + shift - 1.0
-                ideal_x[unplaced_parents[1].id] = cx + shift + 1.0
-                queue.extend(unplaced_parents[:2])
-                
-            unplaced_children = [c for c in curr.children if c in visible_people and c.id not in ideal_x]
-            if unplaced_children:
-                joint_children = []
-                single_children = []
-                
-                if curr.partner and curr.partner in visible_people:
-                    for c in unplaced_children:
-                        if c in curr.partner.children:
-                            joint_children.append(c)
-                        else:
-                            single_children.append(c)
-                else:
-                    single_children = unplaced_children
-                    
-                if joint_children and curr.partner and curr.partner.id in ideal_x:
-                    center_x = (cx + ideal_x[curr.partner.id]) / 2.0
-                    start_x = center_x - (len(joint_children) - 1) * 1.0
-                    for i, c in enumerate(sorted(joint_children, key=lambda x: x.id)):
-                        ideal_x[c.id] = start_x + (i * 2.0)
-                        queue.append(c)
+        # Map actual children to these units
+        unit_children_raw = {u: set() for u in units}
+        for u in units:
+            for p in u:
+                for child in p.children:
+                    if child in visible_people:
+                        unit_children_raw[u].add(person_to_unit[child.id])
                         
-                if single_children:
-                    center_x = cx + (shift * 0.5) 
-                    start_x = center_x - (len(single_children) - 1) * 1.0
-                    for i, c in enumerate(sorted(single_children, key=lambda x: x.id)):
-                        ideal_x[c.id] = start_x + (i * 2.0)
-                        queue.append(c)
+        # Determine average level for each unit to process top-down
+        unit_levels = {}
+        for u in units:
+            lvl = int(sum(next((l for l, ps in order.items() if p in ps), 0) for p in u) / len(u))
+            unit_levels[u] = lvl
 
-        # --- 2. Layout nodes using the computed ideal positions ---
+        # Convert the complex web into a strict Spanning Tree to prevent crossing
+        layout_children = {u: [] for u in units}
+        claimed = set()
+        
+        # Claim children generation by generation (top-down)
+        for lvl in sorted(set(unit_levels.values())):
+            lvl_units = sorted([u for u, l in unit_levels.items() if l == lvl], key=lambda u: u[0].id)
+            for u in lvl_units:
+                kids = sorted(list(unit_children_raw[u]), key=lambda cu: cu[0].id)
+                for child_unit in kids:
+                    if child_unit not in claimed:
+                        layout_children[u].append(child_unit)
+                        claimed.add(child_unit)
+
+        # --- 2. Calculate Required Widths (Bottom-Up) ---
         h_space = 180
         v_space = 150
-
-        for level, persons in order.items():
-            groups = []
-            processed = set()
-
-            for p in persons:
-                if p.id in processed:
-                    continue
-                
-                processed.add(p.id)
-                
-                if p.partner and p.partner in persons and p.partner.id not in processed:
-                    if p.id < p.partner.id:
-                        group = [p, p.partner]
-                    else:
-                        group = [p.partner, p]
-                    processed.add(p.partner.id)
+        unit_widths = {}
+        
+        # Start from the youngest generation and work up to the oldest
+        for lvl in sorted(set(unit_levels.values()), reverse=True):
+            lvl_units = [u for u, l in unit_levels.items() if l == lvl]
+            for u in lvl_units:
+                children = layout_children[u]
+                min_width = len(u) * h_space
+                if not children:
+                    unit_widths[u] = min_width
                 else:
-                    group = [p]
+                    # A parent's block must be at least as wide as all their descendants combined
+                    children_width = sum(unit_widths.get(c, len(c)*h_space) for c in children)
+                    padding = (len(children) - 1) * 40 # 40px guaranteed gap between sibling branches
+                    unit_widths[u] = max(min_width, children_width + padding)
+
+        # --- 3. Assign Absolute X Positions (Top-Down) ---
+        unit_x = {}
+        
+        # Identify the oldest ancestors (roots)
+        roots = [u for u in units if u not in claimed]
+        roots.sort(key=lambda u: u[0].id)
+        
+        current_start_x = 0
+        
+        def assign_x(u, start_x):
+            my_width = unit_widths[u]
+            unit_x[u] = start_x + (my_width / 2) # Center this family in their dedicated block
+            
+            child_start_x = start_x
+            
+            # If the parents are physically wider than their kids, center the kids under the parents
+            children = layout_children[u]
+            if children:
+                children_total_width = sum(unit_widths[c] for c in children) + (len(children) - 1) * 40
+                if my_width > children_total_width:
+                    child_start_x = start_x + (my_width - children_total_width) / 2
+            
+            # Recursively assign dedicated column spaces to children
+            for child in children:
+                assign_x(child, child_start_x)
+                child_start_x += unit_widths[child] + 40
+
+        for r in roots:
+            assign_x(r, current_start_x)
+            current_start_x += unit_widths[r] + 100 # 100px gap if multiple separate family trees are loaded
+
+        # --- 4. Apply Final Positions to Nodes ---
+        for level, persons in order.items():
+            for p in persons:
+                u = person_to_unit[p.id]
+                center_x = unit_x.get(u, 0)
                 
-                groups.append(group)
-            
-            groups.sort(key=lambda g: sum(ideal_x.get(p.id, 0) for p in g) / len(g))
-            
-            sorted_persons = [p for g in groups for p in g]
-            line_count = len(sorted_persons)
-            
-            for i, person in enumerate(sorted_persons):
-                x = (i + 1) * h_space - (line_count * 0.5 * h_space)
+                if len(u) == 1:
+                    x = center_x
+                else:
+                    # --- Bloodline Pull Logic ---
+                    # Orient partners so they face their own side of the family
+                    p1, p2 = u[0], u[1]
+                    
+                    def get_pull(person):
+                        parents_in_view = [par for par in person.parents if par in visible_people]
+                        if parents_in_view:
+                            # Calculate the average X position of this person's parents
+                            return sum(unit_x.get(person_to_unit[par.id], center_x) for par in parents_in_view) / len(parents_in_view)
+                        # If no parents are visible, neutral pull
+                        return center_x
+                        
+                    pull1 = get_pull(p1)
+                    pull2 = get_pull(p2)
+                    
+                    # Sort left/right based on parent locations
+                    if pull1 != pull2:
+                        left_p = p1 if pull1 < pull2 else p2
+                    else:
+                        # Fallback to ID if neither has visible parents to anchor to
+                        left_p = p1 if p1.id < p2.id else p2
+                        
+                    # Apply the left/right offset based on the sorting
+                    if p == left_p:
+                        x = center_x - (h_space * 0.4)
+                    else:
+                        x = center_x + (h_space * 0.4)
+                
                 y = level * v_space
                 
-                node = NodeItem(person, callback=self.set_current_person)
+                node = NodeItem(p, callback=self.set_current_person)
                 node.setPos(x, y)
                 self.scene.addItem(node)
-                self.node_items[person.id] = node
-
+                self.node_items[p.id] = node
         # --- 3. DRAWING LOGIC (Lines & Relations - Filtered) ---
         drawn_partner_lines = set()
         partner_midpoints = {}
