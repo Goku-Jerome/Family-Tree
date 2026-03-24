@@ -27,9 +27,11 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QLineEdit,
     QDialogButtonBox,
-    QVBoxLayout    
+    QVBoxLayout,
+    QDateEdit,
+    QCheckBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QDate
 from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
 from person import Person
 
@@ -108,7 +110,7 @@ class PanGraphicsView(QGraphicsView):
 
 class PersonDialog(QDialog):
     """A simple popup dialog that asks for person details."""
-    def __init__(self, parent=None, title = "New Person"):
+    def __init__(self, parent=None, title="New Person", person=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         
@@ -119,12 +121,15 @@ class PersonDialog(QDialog):
         # 2. Add Input Fields
         self.first_name_input = QLineEdit()
         self.last_name_input = QLineEdit()
-        self.dob_input = QLineEdit()
-        self.dob_input.setPlaceholderText("YYYY-MM-DD or text")
+        self.dob_known_checkbox = QCheckBox("Date of Birth Known")
+        self.dob_input = QDateEdit()
+        self.dob_input.setCalendarPopup(True)
+        self.dob_input.setDisplayFormat("yyyy-MM-dd")
         
         form_layout.addRow("First Name:", self.first_name_input)
         form_layout.addRow("Last Name:", self.last_name_input)
-        form_layout.addRow("Date of Birth:", self.dob_input)
+        form_layout.addRow("Date of Birth:", self.dob_known_checkbox)
+        form_layout.addRow("", self.dob_input)
         
         # 3. Add Standard Buttons (OK/Cancel)
         buttons = QDialogButtonBox(
@@ -135,13 +140,38 @@ class PersonDialog(QDialog):
         
         layout.addLayout(form_layout)
         layout.addWidget(buttons)
+        
+        # Connect checkbox to enable/disable date input
+        self.dob_known_checkbox.stateChanged.connect(self.on_dob_known_changed)
+        
+        # Pre-fill if editing
+        if person:
+            self.first_name_input.setText(person.first_name)
+            self.last_name_input.setText(person.last_name)
+            if person.dob != "Unknown":
+                self.dob_known_checkbox.setChecked(True)
+                date = QDate.fromString(person.dob, "yyyy-MM-dd")
+                if date.isValid():
+                    self.dob_input.setDate(date)
+            else:
+                self.dob_known_checkbox.setChecked(False)
+        else:
+            self.dob_known_checkbox.setChecked(False)
+        
+        self.on_dob_known_changed()  # Set initial state
+
+    def on_dob_known_changed(self):
+        """Enable or disable the date input based on checkbox."""
+        self.dob_input.setEnabled(self.dob_known_checkbox.isChecked())
 
     def get_data(self):
         """Return the entered form data as a simple dictionary."""
+        dob = (self.dob_input.date().toString("yyyy-MM-dd") 
+               if self.dob_known_checkbox.isChecked() else "Unknown")
         return {
             "first_name": self.first_name_input.text().strip(),
             "last_name": self.last_name_input.text().strip(),
-            "dob": self.dob_input.text().strip() or "Unknown"
+            "dob": dob
         }
 
 
@@ -205,8 +235,11 @@ class TreeEditor(QMainWindow):
         info_panel = QVBoxLayout()
         self.name_label = QLabel("Name: -")
         self.relations_label = QLabel("Relations: -")
+        self.edit_button = QPushButton("Edit Person")
+        self.edit_button.clicked.connect(self.edit_current_person)
         info_panel.addWidget(self.name_label)
         info_panel.addWidget(self.relations_label)
+        info_panel.addWidget(self.edit_button)
         info_panel.addStretch(1)
 
         graph_layout.addLayout(info_panel, stretch=1)
@@ -245,6 +278,7 @@ class TreeEditor(QMainWindow):
         self.parent_button.setEnabled(self.current_person is not None)
         self.child_button.setEnabled(self.current_person is not None)
         self.partner_button.setEnabled(self.current_person is not None)
+        self.edit_button.setEnabled(self.current_person is not None)
 
         self.refresh_person_selector()
         self.refresh_graph()
@@ -297,6 +331,26 @@ class TreeEditor(QMainWindow):
         children = ", ".join(c.name for c in self.current_person.children) or "None"
         partner = self.current_person.partner.name if self.current_person.partner else "None"
         self.relations_label.setText(f"Parents: {parents}\nChildren: {children}\nPartner: {partner}")
+
+    def edit_current_person(self):
+        """Open a dialog to edit the currently selected person."""
+        if not self.current_person:
+            return
+        
+        dialog = PersonDialog(self, "Edit Person", self.current_person)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_data()
+            if not data["first_name"]:
+                QMessageBox.warning(self, "Invalid Input", "First name cannot be empty.")
+                return
+            if not data["last_name"]:
+                QMessageBox.warning(self, "Invalid Input", "Last name cannot be empty.")
+                return
+            self.current_person.first_name = data["first_name"]
+            self.current_person.last_name = data["last_name"]
+            self.current_person.name = f"{data['first_name']} {data['last_name']}".strip()
+            self.current_person.dob = data["dob"]
+            self.update_ui_state()
 
     def create_root_person(self):
         """Add the first person when there is no tree yet."""
