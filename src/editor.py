@@ -600,7 +600,9 @@ class TreeEditor(QMainWindow):
         self.set_current_person(self.current_person)
 
     def refresh_graph(self):
-        """Rebuild the visual family tree graph in the scene."""
+        """Rebuild the visual family tree prioritizing the current person with strict Left/Right segregation."""
+        import collections
+        
         self.scene.clear()
         self.node_items = {}
 
@@ -608,16 +610,14 @@ class TreeEditor(QMainWindow):
             self.scene.addText("Create or load a person to start your tree.")
             return
 
-        # Fetch pruned list
         visible_people = self.get_visible_people()
         if not visible_people:
             return
 
-        root = self.find_root_person(visible_people)
-        order = self.compute_levels(root, visible_people)
+        # Identify the priority center
+        center_person = self.current_person if self.current_person in visible_people else visible_people[0]
 
-        # --- 1. Group Families & Build Strict Hierarchy ---
-        # Group partners into unbreakable Family Units (Singles or Couples)
+        # --- 1. Group Families into Units ---
         person_to_unit = {}
         units = set()
         for p in visible_people:
@@ -632,128 +632,185 @@ class TreeEditor(QMainWindow):
                 person_to_unit[p.id] = unit
                 units.add(unit)
 
-        # Map actual children to these units
-        unit_children_raw = {u: set() for u in units}
-        for u in units:
-            for p in u:
-                for child in p.children:
-                    if child in visible_people:
-                        unit_children_raw[u].add(person_to_unit[child.id])
-                        
-        # Determine average level for each unit to process top-down
-        unit_levels = {}
-        for u in units:
-            lvl = int(sum(next((l for l, ps in order.items() if p in ps), 0) for p in u) / len(u))
-            unit_levels[u] = lvl
-
-        # Convert the complex web into a strict Spanning Tree to prevent crossing
-        layout_children = {u: [] for u in units}
-        claimed = set()
-        
-        # Claim children generation by generation (top-down)
-        for lvl in sorted(set(unit_levels.values())):
-            lvl_units = sorted([u for u, l in unit_levels.items() if l == lvl], key=lambda u: u[0].id)
-            for u in lvl_units:
-                kids = sorted(list(unit_children_raw[u]), key=lambda cu: cu[0].id)
-                for child_unit in kids:
-                    if child_unit not in claimed:
-                        layout_children[u].append(child_unit)
-                        claimed.add(child_unit)
-
-        # --- 2. Calculate Required Widths (Bottom-Up) ---
+        # Spacing configuration
         h_space = 180
         v_space = 150
-        unit_widths = {}
-        
-        # Start from the youngest generation and work up to the oldest
-        for lvl in sorted(set(unit_levels.values()), reverse=True):
-            lvl_units = [u for u, l in unit_levels.items() if l == lvl]
-            for u in lvl_units:
-                children = layout_children[u]
-                min_width = len(u) * h_space
-                if not children:
-                    unit_widths[u] = min_width
-                else:
-                    # A parent's block must be at least as wide as all their descendants combined
-                    children_width = sum(unit_widths.get(c, len(c)*h_space) for c in children)
-                    padding = (len(children) - 1) * 40 # 40px guaranteed gap between sibling branches
-                    unit_widths[u] = max(min_width, children_width + padding)
+        padding = 50 # Minimum gap between different family blocks
 
-        # --- 3. Assign Absolute X Positions (Top-Down) ---
-        unit_x = {}
-        
-        # Identify the oldest ancestors (roots)
-        roots = [u for u in units if u not in claimed]
-        roots.sort(key=lambda u: u[0].id)
-        
-        current_start_x = 0
-        
-        def assign_x(u, start_x):
-            my_width = unit_widths[u]
-            unit_x[u] = start_x + (my_width / 2) # Center this family in their dedicated block
-            
-            child_start_x = start_x
-            
-            # If the parents are physically wider than their kids, center the kids under the parents
-            children = layout_children[u]
-            if children:
-                children_total_width = sum(unit_widths[c] for c in children) + (len(children) - 1) * 40
-                if my_width > children_total_width:
-                    child_start_x = start_x + (my_width - children_total_width) / 2
-            
-            # Recursively assign dedicated column spaces to children
-            for child in children:
-                assign_x(child, child_start_x)
-                child_start_x += unit_widths[child] + 40
+        def get_unit_width(u):
+            return len(u) * h_space
 
-        for r in roots:
-            assign_x(r, current_start_x)
-            current_start_x += unit_widths[r] + 100 # 100px gap if multiple separate family trees are loaded
+        # Tracking state for the outward placement
+        placed_units = set()
+        unit_positions = {} # unit -> (center_x, y)
+        level_spans = collections.defaultdict(list) # y -> list of (left_x, right_x, unit)
 
-        # --- 4. Apply Final Positions to Nodes ---
-        for level, persons in order.items():
-            for p in persons:
-                u = person_to_unit[p.id]
-                center_x = unit_x.get(u, 0)
+        def resolve_overlap(u, ideal_x, y, tag):
+            """Finds the closest available spot, forcing strict Left/Right outward movement based on lineage tag."""
+            u_width = get_unit_width(u)
+            half_w = u_width / 2
+            
+            # Enforce strict push directions: -1 = ONLY Left, 1 = ONLY Right, 0 = Closest outward
+            if tag == -1:
+                direction = -1
+            elif tag == 1:
+                direction = 1
+            else:
+                direction = 1 if ideal_x >= 0 else -1
+
+            current_x = ideal_x
+
+            while True:
+                left_edge = current_x - half_w
+                right_edge = current_x + half_w
+                overlapped = False
+
+                for (span_l, span_r, placed_u) in level_spans[y]:
+                    if not (right_edge + padding <= span_l or left_edge - padding >= span_r):
+                        overlapped = True
+                        # Push strictly outwards based on the assigned family side
+                        if direction == 1:
+                            current_x = span_r + padding + half_w
+                        else:
+                            current_x = span_l - padding - half_w
+                        break
+
+                if not overlapped:
+                    return current_x
+
+        # --- 2. BFS Outward Placement with Strict Lineage Tagging ---
+        # Queue format: (unit, ideal_x, y_level, lineage_tag)
+        # Tag Key: 0 = Center Trunk, -1 = Strict Left (Father's side), 1 = Strict Right (Mother's side)
+        queue = collections.deque()
+        unprocessed_units = set(units)
+        
+        center_unit = person_to_unit[center_person.id]
+        queue.append((center_unit, 0, 0, 0)) 
+
+        current_disjoint_offset = 0
+
+        while unprocessed_units:
+            # Handle completely disconnected family trees
+            if not queue:
+                next_unit = unprocessed_units.pop()
+                unprocessed_units.add(next_unit)
+                current_disjoint_offset += 1000 
+                queue.append((next_unit, current_disjoint_offset, 0, 1))
+
+            while queue:
+                u, ideal_x, y, tag = queue.popleft()
+                if u in placed_units:
+                    continue
+
+                # Lock in position, pushing out strictly to their family's side
+                final_x = resolve_overlap(u, ideal_x, y, tag)
+                unit_positions[u] = (final_x, y)
                 
-                if len(u) == 1:
-                    x = center_x
-                else:
-                    # --- Bloodline Pull Logic ---
-                    # Orient partners so they face their own side of the family
+                half_w = get_unit_width(u) / 2
+                level_spans[y].append((final_x - half_w, final_x + half_w, u))
+                
+                placed_units.add(u)
+                unprocessed_units.remove(u)
+
+                # --- Queue Parents (Upward) ---
+                # If we are on the center trunk, we need to split the parents into Left and Right branches
+                if tag == 0 and len(u) == 2:
                     p1, p2 = u[0], u[1]
+                    p1_parents = list(set(person_to_unit[par.id] for par in p1.parents if par in visible_people))
+                    p2_parents = list(set(person_to_unit[par.id] for par in p2.parents if par in visible_people))
                     
-                    def get_pull(person):
-                        parents_in_view = [par for par in person.parents if par in visible_people]
-                        if parents_in_view:
-                            # Calculate the average X position of this person's parents
-                            return sum(unit_x.get(person_to_unit[par.id], center_x) for par in parents_in_view) / len(parents_in_view)
-                        # If no parents are visible, neutral pull
-                        return center_x
-                        
-                    pull1 = get_pull(p1)
-                    pull2 = get_pull(p2)
+                    for pu in p1_parents:
+                        if pu not in placed_units:
+                            queue.append((pu, final_x - h_space, y - v_space, -1)) # Assign Left Lineage
+                    for pu in p2_parents:
+                        if pu not in placed_units:
+                            queue.append((pu, final_x + h_space, y - v_space, 1))  # Assign Right Lineage
+                
+                elif tag == 0 and len(u) == 1:
+                    p1 = u[0]
+                    p_units = list(set(person_to_unit[par.id] for par in p1.parents if par in visible_people))
+                    p_units.sort(key=lambda x: x[0].id)
                     
-                    # Sort left/right based on parent locations
-                    if pull1 != pull2:
-                        left_p = p1 if pull1 < pull2 else p2
-                    else:
-                        # Fallback to ID if neither has visible parents to anchor to
-                        left_p = p1 if p1.id < p2.id else p2
-                        
-                    # Apply the left/right offset based on the sorting
-                    if p == left_p:
-                        x = center_x - (h_space * 0.4)
-                    else:
-                        x = center_x + (h_space * 0.4)
+                    if len(p_units) == 1:
+                        queue.append((p_units[0], final_x, y - v_space, 0))
+                    elif len(p_units) >= 2:
+                        queue.append((p_units[0], final_x - h_space, y - v_space, -1))
+                        queue.append((p_units[1], final_x + h_space, y - v_space, 1))
                 
-                y = level * v_space
-                
+                else:
+                    # Maintain the assigned Tag (Left stays Left, Right stays Right)
+                    parents_of_u = set()
+                    for p in u:
+                        for par in p.parents:
+                            if par in visible_people:
+                                parents_of_u.add(person_to_unit[par.id])
+                    
+                    sorted_parents = sorted(list(parents_of_u), key=lambda x: x[0].id)
+                    if tag == -1:
+                        parent_offset = final_x - h_space
+                        for pu in sorted_parents:
+                            if pu not in placed_units:
+                                queue.append((pu, parent_offset, y - v_space, -1))
+                                parent_offset -= h_space
+                    elif tag == 1:
+                        parent_offset = final_x + h_space
+                        for pu in sorted_parents:
+                            if pu not in placed_units:
+                                queue.append((pu, parent_offset, y - v_space, 1))
+                                parent_offset += h_space
+
+                # --- Queue Children (Downward) ---
+                children_of_u = set()
+                for p in u:
+                    for child in p.children:
+                        if child in visible_people:
+                            children_of_u.add(person_to_unit[child.id])
+
+                if children_of_u:
+                    sorted_children = sorted(list(children_of_u), key=lambda x: x[0].id)
+                    
+                    if tag == -1:
+                        child_offset = final_x - h_space
+                        for cu in sorted_children:
+                            if cu not in placed_units:
+                                queue.append((cu, child_offset, y + v_space, -1))
+                                child_offset -= h_space
+                    elif tag == 1:
+                        child_offset = final_x + h_space
+                        for cu in sorted_children:
+                            if cu not in placed_units:
+                                queue.append((cu, child_offset, y + v_space, 1))
+                                child_offset += h_space
+                    else:
+                        child_offset = final_x - (len(sorted_children) - 1) * (h_space) / 2
+                        for cu in sorted_children:
+                            if cu not in placed_units:
+                                queue.append((cu, child_offset, y + v_space, 0))
+                                child_offset += h_space * 1.5
+
+        # --- 3. Apply Final Positions to Node Items ---
+        for u, (center_x, y) in unit_positions.items():
+            if len(u) == 1:
+                p = u[0]
                 node = NodeItem(p, callback=self.set_current_person)
-                node.setPos(x, y)
+                node.setPos(center_x, y)
                 self.scene.addItem(node)
                 self.node_items[p.id] = node
-        # --- 3. DRAWING LOGIC (Lines & Relations - Filtered) ---
+            else:
+                p1, p2 = u[0], u[1]
+                node1 = NodeItem(p1, callback=self.set_current_person)
+                node2 = NodeItem(p2, callback=self.set_current_person)
+                
+                node1.setPos(center_x - (h_space * 0.4), y)
+                node2.setPos(center_x + (h_space * 0.4), y)
+                
+                self.scene.addItem(node1)
+                self.scene.addItem(node2)
+                
+                self.node_items[p1.id] = node1
+                self.node_items[p2.id] = node2
+
+        # --- 4. DRAWING LOGIC (Lines & Relations) ---
         drawn_partner_lines = set()
         partner_midpoints = {}
         
@@ -769,7 +826,6 @@ class TreeEditor(QMainWindow):
                         p_center = p_item.sceneBoundingRect().center()
                         partner_center = partner_item.sceneBoundingRect().center()
                         
-                        # Store the line in a variable and set its Z-value to -1
                         partner_line = self.scene.addLine(
                             p_center.x(), p_center.y(), 
                             partner_center.x(), partner_center.y(), 
@@ -831,6 +887,7 @@ class TreeEditor(QMainWindow):
                         )
                         line.setZValue(-1)
 
+        # Apply final styling and centering
         if self.current_person and self.current_person.id in self.node_items:
             self.node_items[self.current_person.id].update_style(True)
 
