@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
     QDateEdit,
     QCheckBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QDate
+from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
 from person import Person
 
