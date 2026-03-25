@@ -27,6 +27,7 @@ class Person:
     def __str__(self):
         # Human-friendly text when this object is printed.
         return self.name
+    
 
     def add_parent(self, parent):
         """Make another Person a parent of this one."""

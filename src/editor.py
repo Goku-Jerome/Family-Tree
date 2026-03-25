@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
 from person import Person
+from relation import find_relationship, find_blood_relationship, detect_blood_relation
 
 
 class NodeItem(QGraphicsRectItem):
@@ -186,6 +187,7 @@ class TreeEditor(QMainWindow):
 
         self.people = {}
         self.current_person = None
+        self.compare_person = None
         self.node_items = {}
 
         central_widget = QWidget()
@@ -240,6 +242,28 @@ class TreeEditor(QMainWindow):
         info_panel.addWidget(self.name_label)
         info_panel.addWidget(self.relations_label)
         info_panel.addWidget(self.edit_button)
+        
+        # Add separator and relationship comparison section
+        separator1 = QLabel("─" * 40)
+        info_panel.addWidget(separator1)
+        
+        compare_label = QLabel("Relationship Comparison")
+        compare_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        info_panel.addWidget(compare_label)
+        
+        info_panel.addWidget(QLabel("Compare with:"))
+        self.compare_person_selector = QComboBox()
+        self.compare_person_selector.currentIndexChanged.connect(self.on_compare_person_changed)
+        info_panel.addWidget(self.compare_person_selector)
+        
+        self.blood_relation_label = QLabel("Blood Relation: -")
+        self.full_relation_label = QLabel("Full Relation: -")
+        self.is_related_label = QLabel("Related: -")
+        
+        info_panel.addWidget(self.blood_relation_label)
+        info_panel.addWidget(self.full_relation_label)
+        info_panel.addWidget(self.is_related_label)
+        
         info_panel.addStretch(1)
 
         graph_layout.addLayout(info_panel, stretch=1)
@@ -290,7 +314,7 @@ class TreeEditor(QMainWindow):
             self.relations_label.setText("Relations: -")
 
     def refresh_person_selector(self):
-        """Update the dropdown list so it reflects all known people."""
+        """Update the dropdown lists so they reflect all known people."""
         selected_id = self.current_person.id if self.current_person else None
         self.person_selector.blockSignals(True)
         self.person_selector.clear()
@@ -306,12 +330,73 @@ class TreeEditor(QMainWindow):
                     break
 
         self.person_selector.blockSignals(False)
+        
+        # Also update the compare person selector
+        compare_selected_id = None
+        if hasattr(self, 'compare_person'):
+            compare_selected_id = self.compare_person.id if self.compare_person else None
+        
+        self.compare_person_selector.blockSignals(True)
+        self.compare_person_selector.clear()
+        self.compare_person_selector.addItem("Select person to compare", None)
+        
+        for p in self.people.values():
+            self.compare_person_selector.addItem(f"{p.name} ({p.id[:8]})", p.id)
+        
+        if compare_selected_id is not None:
+            for i in range(self.compare_person_selector.count()):
+                if self.compare_person_selector.itemData(i) == compare_selected_id:
+                    self.compare_person_selector.setCurrentIndex(i)
+                    break
+        
+        self.compare_person_selector.blockSignals(False)
+        
+        # Trigger update
+        self.on_compare_person_changed()
 
     def on_person_selected(self):
         """Callback for dropdown selection changes."""
         selected_id = self.person_selector.currentData()
         if selected_id and selected_id in self.people:
             self.set_current_person(self.people[selected_id])
+
+    def on_compare_person_changed(self):
+        """Callback when comparison person is selected."""
+        selected_id = self.compare_person_selector.currentData()
+        if selected_id and selected_id in self.people:
+            self.compare_person = self.people[selected_id]
+        else:
+            self.compare_person = None
+        self.update_relationship_display()
+
+    def update_relationship_display(self):
+        """Update the relationship display between current_person and compare_person."""
+        if not self.current_person or not self.compare_person:
+            self.blood_relation_label.setText("Blood Relation: -")
+            self.full_relation_label.setText("Full Relation: -")
+            self.is_related_label.setText("Related: -")
+            return
+        
+        # Check if they're the same person
+        if self.current_person is self.compare_person:
+            self.blood_relation_label.setText("Blood Relation: Self")
+            self.full_relation_label.setText("Full Relation: Self")
+            self.is_related_label.setText("Related: Yes (self)")
+            return
+        
+        # Get relationships
+        blood_rel = find_blood_relationship(self.current_person, self.compare_person)
+        full_rel = find_relationship(self.current_person, self.compare_person)
+        is_blood = detect_blood_relation(self.current_person, self.compare_person)
+        
+        # Format display
+        blood_text = blood_rel if blood_rel else "Not related by blood"
+        full_text = full_rel if full_rel else "Not related"
+        related_status = "Yes" if (blood_rel or full_rel) else "No"
+        
+        self.blood_relation_label.setText(f"Blood Relation: {blood_text}")
+        self.full_relation_label.setText(f"Full Relation: {full_text}")
+        self.is_related_label.setText(f"Related: {related_status}")
 
     def set_current_person(self, person):
         """Mark one person as active and refresh selection highlighting."""
