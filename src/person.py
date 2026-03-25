@@ -29,6 +29,22 @@ class Person:
         # Human-friendly text when this object is printed.
         return self.name
     
+    def delete(self):
+        """Remove this person from all relationships before deletion."""
+        # Remove from parents' children lists
+        for parent in self.parents:
+            if self in parent.children:
+                parent.children.remove(self)
+
+        # Remove from children's parents lists
+        for child in self.children:
+            if self in child.parents:
+                child.parents.remove(self)
+
+        # Clear partner's link if exists
+        if self.partner:
+            self.partner.partner = None
+            self.partner = None
 
     def add_parent(self, parent):
         """Make another Person a parent of this one."""

@@ -282,10 +282,13 @@ class TreeEditor(QMainWindow):
         self.relations_label = QLabel("Relations: -")
         self.edit_button = QPushButton("Edit Person")
         self.edit_button.clicked.connect(self.edit_current_person)
+        self.delete_button = QPushButton("Delete Person")
+        self.delete_button.clicked.connect(self.delete_current_person)
         info_panel.addWidget(self.name_label)
         info_panel.addWidget(self.relations_label)
         info_panel.addWidget(self.edit_button)
-        
+        info_panel.addWidget(self.delete_button)
+
         # Add separator and relationship comparison section
         separator1 = QLabel("─" * 40)
         info_panel.addWidget(separator1)
@@ -465,6 +468,25 @@ class TreeEditor(QMainWindow):
         children = ", ".join(c.name for c in self.current_person.children) or "None"
         partner = self.current_person.partner.name if self.current_person.partner else "None"
         self.relations_label.setText(f"Parents: {parents}\nChildren: {children}\nPartner: {partner}")
+
+
+    def delete_current_person(self):
+        if not self.current_person:
+            return
+        
+        confirm = QMessageBox.question(self, "Confirm Deletion", f"Are you sure you want to delete {self.current_person.name}? This will remove all their relationships but not delete related people.")
+        if confirm == QMessageBox.StandardButton.Yes:
+            # 1. Sever the family ties (from person.py)
+            self.current_person.delete()
+            
+            # 2. Delete from the master dictionary so they disappear completely
+            if self.current_person.id in self.people:
+                del self.people[self.current_person.id]
+                
+            # 3. Clear the selection and update the UI
+            self.current_person = None
+            self.update_ui_state()
+
 
     def edit_current_person(self):
         """Open a dialog to edit the currently selected person."""
@@ -809,7 +831,7 @@ class TreeEditor(QMainWindow):
             return
 
         # Identify the priority center
-        center_person = self.current_person if self.current_person in visible_people else visible_people[0]
+        center_person = self.current_person if self.current_person in visible_people else next(iter(visible_people), None)
 
         # --- 1. Group Families into Units ---
         person_to_unit = {}
