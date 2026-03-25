@@ -7,7 +7,7 @@ import uuid
 class Person:
     """Simple data container representing one person in the tree."""
 
-    def __init__(self, first_name="Unnamed", last_name="Unnamed", dob=None, person_id=None):
+    def __init__(self, first_name="Unnamed", last_name="Unnamed", dob=None, person_id=None, gender = None):
         # Unique ID is either given or generated.
         self.id = person_id or str(uuid.uuid4())
 
@@ -23,6 +23,7 @@ class Person:
         self.parents = []
         self.children = []
         self.partner = None
+        self.gender = gender
 
     def __str__(self):
         # Human-friendly text when this object is printed.

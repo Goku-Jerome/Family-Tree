@@ -4,235 +4,150 @@ from typing import Optional, Tuple, List
 from person import Person
 
 
-def detect_blood_relation(person1: Person, person2: Person) -> bool:
-    """
-    Detect if two people have a blood relation (genetic connection).
-    Only follows parent-child links, not partner links.
-    
-    Args:
-        person1: First person
-        person2: Second person
-    
-    Returns:
-        True if there is a blood relation between them, False otherwise
-    """
+
+def find_relationship_bfs(person1: Person, person2: Person):
+    """Find the relationship between any two individuals."""
+
     if person1 is person2:
-        return True
+        return "Same person"
     
-    # BFS using only parent-child connections
-    visited = {person1}
-    queue = deque([person1])
-    
+    queue = deque() #create a queue for breadth-first search
+    queue.append((person1, [person1], False)) #add person 1 to the queue, the path so far is just person 1 and the in-law flag is false
+
+    visited = set() #keep track of visited people to avoid cycles
+    visited.add(person1)
+
     while queue:
-        current = queue.popleft()
-        
-        # Check parents
+        current, path, in_law = queue.popleft() #get the next person and the path to them
+
+        if current is person2: #if we found person 2, return the relationship
+            return (path, in_law)
+
+        # Explore parents
         for parent in current.parents:
-            if parent is person2:
-                return True
             if parent not in visited:
                 visited.add(parent)
-                queue.append(parent)
-        
-        # Check children
+                queue.append((parent, path + [parent], in_law))
+
+        # Explore children
         for child in current.children:
-            if child is person2:
-                return True
             if child not in visited:
                 visited.add(child)
-                queue.append(child)
+                queue.append((child, path + [child], in_law))
+
+        # Explore partner
+        if current.partner and current.partner not in visited:
+            visited.add(current.partner)
+            queue.append((current.partner, path + [current.partner], True)) #partner is an in-law relationship
     
-    return False
+    return None #if person 2 is not found, return None
 
 
-def _find_path_bfs(person1: Person, person2: Person, blood_only: bool = False) -> Optional[List[Tuple[Person, str]]]:
-    """
-    Find the shortest path between two people using BFS.
-    Returns a list of (person, relation_type) tuples representing the path.
+def get_relationship_title(result_tuple: Optional[Tuple[List[Person], bool]]) -> str:
+    """Converts a BFS result tuple into a gender-specific English relationship string."""
     
-    Args:
-        person1: Starting person
-        person2: Target person
-        blood_only: If True, only follow parent-child links; if False, include partner links
-    
-    Returns:
-        List of (person, direction) tuples showing the path, or None if no path exists
-    """
-    if person1 is person2:
-        return [(person1, "self")]
-    
-    visited = {person1}
-    queue = deque([(person1, [(person1, "self")])])
-    
-    while queue:
-        current, path = queue.popleft()
+    if not result_tuple:
+        return "No relationship found"
         
-        # Get all connections from current person
-        connections = []
-        
-        # Parent connections
-        for parent in current.parents:
-            connections.append((parent, "parent"))
-        
-        # Child connections
-        for child in current.children:
-            connections.append((child, "child"))
-        
-        # Partner connection (only if not blood_only)
-        if not blood_only and current.partner:
-            connections.append((current.partner, "partner"))
-        
-        for next_person, relation_type in connections:
-            if next_person is person2:
-                return path + [(next_person, relation_type)]
-            
-            if next_person not in visited:
-                visited.add(next_person)
-                queue.append((next_person, path + [(next_person, relation_type)]))
+    path, is_in_law = result_tuple
     
-    return None
-
-
-def _path_to_relationship(path: List[Tuple[Person, str]]) -> str:
-    """
-    Convert a path through the family tree to a human-readable relationship.
-    
-    Args:
-        path: List of (person, direction) tuples from BFS
-    
-    Returns:
-        A string describing the relationship
-    """
-    if len(path) < 2:
+    if len(path) == 1:
         return "Self"
-    
-    # Analyze the path structure
-    directions = [direction for _, direction in path[1:]]
-    
-    # Direct relationships
-    if len(directions) == 1:
-        direction = directions[0]
-        if direction == "parent":
-            return "Parent"
-        elif direction == "child":
-            return "Child"
-        elif direction == "partner":
-            return "Partner"
-    
-    # Siblings (share parents)
-    if len(directions) == 2 and directions == ["parent", "child"]:
-        return "Sibling"
-    
-    # Grandparent/Grandchild
-    if directions.count("parent") == 2 and directions.count("child") == 0 and "partner" not in directions:
-        return "Grandparent"
-    if directions.count("child") == 2 and directions.count("parent") == 0 and "partner" not in directions:
-        return "Grandchild"
-    
-    # Great-grandparent/Great-grandchild
-    if directions.count("parent") == 3 and directions.count("child") == 0 and "partner" not in directions:
-        return "Great-Grandparent"
-    if directions.count("child") == 3 and directions.count("parent") == 0 and "partner" not in directions:
-        return "Great-Grandchild"
-    
-    # Aunt/Uncle (sibling of parent)
-    if (len(directions) == 3 and 
-        directions[0:2] == ["parent", "parent"] and 
-        directions[2] == "child"):
-        return "Aunt/Uncle"
-    
-    # Niece/Nephew (child of sibling)
-    if (len(directions) == 3 and 
-        directions[0:2] == ["parent", "child"] and 
-        directions[2] == "child"):
-        return "Niece/Nephew"
-    
-    # Cousin (parent's sibling's child)
-    if (len(directions) == 4 and 
-        directions[0:2] == ["parent", "parent"] and
-        directions[2:4] == ["child", "child"] and
-        "partner" not in directions):
-        return "First Cousin"
-    
-    # First Cousin Once Removed
-    if (len(directions) == 5 and
-        directions == ["parent", "parent", "child", "child", "child"] and
-        "partner" not in directions):
-        return "First Cousin Once Removed (Descendent)"
-    
-    if (len(directions) == 5 and
-        directions == ["parent", "parent", "parent", "child", "child"] and
-        "partner" not in directions):
-        return "First Cousin Once Removed (Ancestor)"
-    
-    # In-law relationships (involves partner link)
-    if "partner" in directions:
-        partner_idx = directions.index("partner")
-        before_partner = directions[:partner_idx]
-        after_partner = directions[partner_idx + 1:]
         
-        # If partner appears early in path
-        if len(before_partner) == 0:
-            # Direct partner
-            if len(after_partner) == 0:
-                return "Partner"
-            # Partner's relatives
-            elif len(after_partner) == 1 and after_partner[0] == "parent":
-                return "Parent-in-law"
-            elif len(after_partner) == 1 and after_partner[0] == "child":
-                return "Child-in-law"
-            elif after_partner == ["parent", "parent"]:
-                return "Grandparent-in-law"
-            elif after_partner == ["parent", "child"]:
-                return "Sibling-in-law"
-            else:
-                return f"Partner's {_path_to_relationship([(None, d) for d in after_partner])}"
+    target_person = path[-1]
+    
+    # SAFELY HANDLE GENDER: Fallback to 'n' if missing, None, or empty
+    raw_gender = getattr(target_person, 'gender', None)
+    gender_str = str(raw_gender).lower() if raw_gender else 'n'
+    
+    is_male = gender_str.startswith('m')
+    is_female = gender_str.startswith('f')
+
+    # Handle direct partners
+    if len(path) == 2 and is_in_law:
+        if is_male: return "Husband"
+        if is_female: return "Wife"
+        return "Partner/Spouse"
+
+    # Count the generational steps
+    up_steps = 0
+    down_steps = 0
+
+    for i in range(len(path) - 1):
+        current_person = path[i]
+        next_person = path[i+1]
+
+        if next_person in current_person.parents:
+            up_steps += 1
+        elif next_person in current_person.children:
+            down_steps += 1
+
+    base_title = ""
+    
+    # Direct Ancestors
+    if up_steps > 0 and down_steps == 0:
+        if is_male: noun = "Father"
+        elif is_female: noun = "Mother"
+        else: noun = "Parent"
         
-        # If someone's relative married to your relative (spouse's sibling of your relative)
-        elif len(before_partner) == 2 and before_partner == ["parent", "child"] and len(after_partner) >= 1:
-            # Your sibling's partner's relative
-            return f"Sibling-in-law's {_path_to_relationship([(None, d) for d in after_partner])}"
+        if up_steps == 1: base_title = noun
+        elif up_steps == 2: base_title = f"Grand{noun.lower()}"
+        else: base_title = ("Great-" * (up_steps - 2)) + f"Grand{noun.lower()}"
         
-        # Standard parent -> uncle -> uncle's wife scenario (Jerome -> uncle -> uncle's wife)
-        elif len(before_partner) == 2 and before_partner == ["parent", "parent"] and len(after_partner) >= 1:
-            # Parent's sibling's partner
-            if after_partner == []:
-                return "Aunt/Uncle-in-law"
-            else:
-                return f"Aunt/Uncle-in-law's {_path_to_relationship([(None, d) for d in after_partner])}"
+    # Direct Descendants
+    elif down_steps > 0 and up_steps == 0:
+        if is_male: noun = "Son"
+        elif is_female: noun = "Daughter"
+        else: noun = "Child"
         
+        if down_steps == 1: base_title = noun
+        elif down_steps == 2: base_title = f"Grand{noun.lower()}"
+        else: base_title = ("Great-" * (down_steps - 2)) + f"Grand{noun.lower()}"
+        
+    # Siblings
+    elif up_steps == 1 and down_steps == 1:
+        if is_male: base_title = "Brother"
+        elif is_female: base_title = "Sister"
+        else: base_title = "Sibling"
+        
+    # Aunts and Uncles
+    elif up_steps > 1 and down_steps == 1:
+        if is_male: noun = "Uncle"
+        elif is_female: noun = "Aunt"
+        else: noun = "Aunt/Uncle"
+        
+        if up_steps == 2: base_title = noun
+        else: base_title = ("Great-" * (up_steps - 2)) + noun
+        
+    # Nieces and Nephews
+    elif up_steps == 1 and down_steps > 1:
+        if is_male: noun = "Nephew"
+        elif is_female: noun = "Niece"
+        else: noun = "Niece/Nephew"
+        
+        if down_steps == 2: base_title = noun
+        else: base_title = ("Great-" * (down_steps - 2)) + noun
+        
+    # Cousins 
+    elif up_steps >= 2 and down_steps >= 2:
+        degree = min(up_steps, down_steps) - 1
+        removed = abs(up_steps - down_steps)
+        
+        # Assuming your _ordinal() function is still in scope
+        degree_str = _ordinal(degree) 
+        
+        if removed == 0:
+            base_title = f"{degree_str} Cousin"
         else:
-            return f"In-law relation"
-    
-    # Fallback for complex paths
-    up_count = directions.count("parent")
-    down_count = directions.count("child")
-    
-    if up_count > 0 and down_count == 0:
-        return f"{up_count} generations up"
-    elif down_count > 0 and up_count == 0:
-        return f"{down_count} generations down"
-    else:
-        # Path that goes up then down = cousin-like relationship
-        if up_count > 0 and down_count > 0:
-            common_ancestor_distance = max(up_count - 1, 0)
-            cousin_degree = min(up_count, down_count) - 1
-            removed = abs(up_count - down_count)
-            
-            if cousin_degree < 0:
-                return "Aunt/Uncle or Niece/Nephew"
-            elif cousin_degree == 0:
-                if removed == 0:
-                    return "Sibling"
-                else:
-                    return f"Sibling (but actually first cousin once removed)"
-            else:
-                if removed == 0:
-                    return f"{_ordinal(cousin_degree)} Cousin"
-                else:
-                    return f"{_ordinal(cousin_degree)} Cousin {removed}x Removed"
-    
-    return "Distant Relative"
+            base_title = f"{degree_str} Cousin {removed}x removed"
+
+    # Apply In-Law Modifier
+    if is_in_law:
+        return f"{base_title}-in-law"
+        
+    return base_title
+
+
 
 
 def _ordinal(n: int) -> str:
@@ -249,51 +164,3 @@ def _ordinal(n: int) -> str:
         return "Fifth"
     else:
         return f"{n}th"
-
-
-def find_relationship(person1: Person, person2: Person) -> Optional[str]:
-    """
-    Find the closest/most direct relationship between two people.
-    Considers both blood relations and relations through marriage.
-    
-    Args:
-        person1: First person
-        person2: Second person
-    
-    Returns:
-        A string describing the relationship, or None if no relation exists
-    """
-    if person1 is person2:
-        return "Self"
-    
-    # Try to find path including marriage links
-    path = _find_path_bfs(person1, person2, blood_only=False)
-    
-    if path is None:
-        return None
-    
-    return _path_to_relationship(path)
-
-
-def find_blood_relationship(person1: Person, person2: Person) -> Optional[str]:
-    """
-    Find the closest blood relation between two people.
-    Only considers genetic connections (parents and children).
-    
-    Args:
-        person1: First person
-        person2: Second person
-    
-    Returns:
-        A string describing the blood relationship, or None if no blood relation exists
-    """
-    if person1 is person2:
-        return "Self"
-    
-    # Try to find path using only blood links
-    path = _find_path_bfs(person1, person2, blood_only=True)
-    
-    if path is None:
-        return None
-    
-    return _path_to_relationship(path)

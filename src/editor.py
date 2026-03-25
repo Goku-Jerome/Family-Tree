@@ -29,12 +29,13 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QVBoxLayout,
     QDateEdit,
-    QCheckBox
+    QCheckBox,
+    QStackedWidget
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
 from person import Person
-from relation import find_relationship, find_blood_relationship, detect_blood_relation
+from relation import find_relationship_bfs, get_relationship_title
 
 
 class NodeItem(QGraphicsRectItem):
@@ -127,8 +128,20 @@ class PersonDialog(QDialog):
         self.dob_input.setCalendarPopup(True)
         self.dob_input.setDisplayFormat("yyyy-MM-dd")
         
+        # Gender field with dropdown
+        self.gender_combo = QComboBox()
+        self.gender_combo.addItems(["Male", "Female", "Other"])
+        self.gender_combo.currentIndexChanged.connect(self.on_gender_changed)
+        
+        # Other gender text input (hidden by default)
+        self.other_gender_input = QLineEdit()
+        self.other_gender_input.setPlaceholderText("Please specify...")
+        self.other_gender_input.setVisible(False)
+        
         form_layout.addRow("First Name:", self.first_name_input)
         form_layout.addRow("Last Name:", self.last_name_input)
+        form_layout.addRow("Gender:", self.gender_combo)
+        form_layout.addRow("", self.other_gender_input)
         form_layout.addRow("Date of Birth:", self.dob_known_checkbox)
         form_layout.addRow("", self.dob_input)
         
@@ -156,23 +169,53 @@ class PersonDialog(QDialog):
                     self.dob_input.setDate(date)
             else:
                 self.dob_known_checkbox.setChecked(False)
+            
+            # Set gender
+            if person.gender:
+                gender_lower = str(person.gender).lower()
+                if gender_lower.startswith('m'):
+                    self.gender_combo.setCurrentIndex(0)  # Male
+                elif gender_lower.startswith('f'):
+                    self.gender_combo.setCurrentIndex(1)  # Female
+                else:
+                    self.gender_combo.setCurrentIndex(2)  # Other
+                    self.other_gender_input.setText(person.gender)
         else:
             self.dob_known_checkbox.setChecked(False)
         
         self.on_dob_known_changed()  # Set initial state
+        self.on_gender_changed()  # Set initial gender state
 
     def on_dob_known_changed(self):
         """Enable or disable the date input based on checkbox."""
         self.dob_input.setEnabled(self.dob_known_checkbox.isChecked())
+    
+    def on_gender_changed(self):
+        """Show/hide the other gender text input based on selection."""
+        is_other = self.gender_combo.currentText() == "Other"
+        self.other_gender_input.setVisible(is_other)
 
     def get_data(self):
         """Return the entered form data as a simple dictionary."""
         dob = (self.dob_input.date().toString("yyyy-MM-dd") 
                if self.dob_known_checkbox.isChecked() else "Unknown")
+        
+        # Get gender value
+        gender_selection = self.gender_combo.currentText()
+        if gender_selection == "Other" and self.other_gender_input.text().strip():
+            gender = self.other_gender_input.text().strip()
+        elif gender_selection == "Male":
+            gender = "Male"
+        elif gender_selection == "Female":
+            gender = "Female"
+        else:
+            gender = None
+        
         return {
             "first_name": self.first_name_input.text().strip(),
             "last_name": self.last_name_input.text().strip(),
-            "dob": dob
+            "dob": dob,
+            "gender": gender
         }
 
 
@@ -372,31 +415,37 @@ class TreeEditor(QMainWindow):
     def update_relationship_display(self):
         """Update the relationship display between current_person and compare_person."""
         if not self.current_person or not self.compare_person:
-            self.blood_relation_label.setText("Blood Relation: -")
-            self.full_relation_label.setText("Full Relation: -")
+            self.blood_relation_label.setText("Relation: -")
+            self.full_relation_label.setText("Path: -")
             self.is_related_label.setText("Related: -")
             return
         
         # Check if they're the same person
         if self.current_person is self.compare_person:
-            self.blood_relation_label.setText("Blood Relation: Self")
-            self.full_relation_label.setText("Full Relation: Self")
+            self.blood_relation_label.setText("Relation: Self")
+            self.full_relation_label.setText("Path: Same person")
             self.is_related_label.setText("Related: Yes (self)")
             return
         
-        # Get relationships
-        blood_rel = find_blood_relationship(self.current_person, self.compare_person)
-        full_rel = find_relationship(self.current_person, self.compare_person)
-        is_blood = detect_blood_relation(self.current_person, self.compare_person)
+        # Get relationship using BFS
+        result = find_relationship_bfs(self.current_person, self.compare_person)
         
-        # Format display
-        blood_text = blood_rel if blood_rel else "Not related by blood"
-        full_text = full_rel if full_rel else "Not related"
-        related_status = "Yes" if (blood_rel or full_rel) else "No"
-        
-        self.blood_relation_label.setText(f"Blood Relation: {blood_text}")
-        self.full_relation_label.setText(f"Full Relation: {full_text}")
-        self.is_related_label.setText(f"Related: {related_status}")
+        if result:
+            # Get the human-readable relationship title
+            relationship_title = get_relationship_title(result)
+            path, is_in_law = result
+            path_str = " → ".join([p.name for p in path])
+            
+            # Format display
+            relation_text = relationship_title if relationship_title and relationship_title != "No relationship found" else "Not related"
+            
+            self.blood_relation_label.setText(f"Relation: {relation_text}")
+            self.full_relation_label.setText(f"Path: {path_str}")
+            self.is_related_label.setText(f"Related: Yes")
+        else:
+            self.blood_relation_label.setText("Relation: Not related")
+            self.full_relation_label.setText("Path: No path found")
+            self.is_related_label.setText(f"Related: No")
 
     def set_current_person(self, person):
         """Mark one person as active and refresh selection highlighting."""
@@ -435,6 +484,7 @@ class TreeEditor(QMainWindow):
             self.current_person.last_name = data["last_name"]
             self.current_person.name = f"{data['first_name']} {data['last_name']}".strip()
             self.current_person.dob = data["dob"]
+            self.current_person.gender = data["gender"]
             self.update_ui_state()
 
     def create_root_person(self):
@@ -450,6 +500,8 @@ class TreeEditor(QMainWindow):
         dialog = PersonDialog(self, title)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             data = dialog.get_data()
+        else:
+            return None
 
         if not data["first_name"]:
             data["first_name"] = None
@@ -461,7 +513,8 @@ class TreeEditor(QMainWindow):
         return Person(
             first_name=data["first_name"], 
             last_name=data["last_name"], 
-            dob=data["dob"]
+            dob=data["dob"],
+            gender=data["gender"]
         )
 
     def choose_existing_person(self, exclude=None):
@@ -536,6 +589,7 @@ class TreeEditor(QMainWindow):
             "first_name": person.first_name,
             "last_name": person.last_name,
             "dob": person.dob,
+            "gender": person.gender,
             "parents": [p.id for p in person.parents],
             "children": [c.id for c in person.children],
             "partner": person.partner.id if person.partner else None,
@@ -584,6 +638,7 @@ class TreeEditor(QMainWindow):
                 last_name=p_data.get("last_name"),
                 dob=p_data.get("dob"),
                 person_id=p_data.get("id"),
+                gender=p_data.get("gender"),
             )
             self.people[p.id] = p
 
