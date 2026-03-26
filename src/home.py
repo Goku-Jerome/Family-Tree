@@ -62,15 +62,27 @@ class HomeMenu(QMainWindow):
         main_layout.addStretch(2)
         central_widget.setLayout(main_layout)
 
+        self.setMinimumSize(640, 480)
+
+        # Apply settings (theme and font)
+        self.apply_settings()
+
+    def apply_settings(self):
+        """Apply current settings to this window."""
+        options.OptionsMenu.apply_theme_to_window(self)
+
     def resizeEvent(self, event):
         """Automatically adjusts text size when user resizes the main window."""
         super().resizeEvent(event)
 
+        settings = options.OptionsMenu.get_settings()
+        base_font_size = settings.get('font_size', 12)
+
         # Use the smaller of width and height to choose font sizes.
         window_size = min(self.width(), self.height())
 
-        dynamic_title_size = max(16, int(window_size * 0.1))
-        dynamic_button_size = max(10, int(window_size * 0.05))
+        dynamic_title_size = max(base_font_size + 6, int(window_size * 0.1))
+        dynamic_button_size = max(base_font_size, int(window_size * 0.05))
 
         self.title_label.setFont(QFont("Arial", dynamic_title_size, QFont.Weight.Bold))
 
@@ -99,6 +111,17 @@ class HomeMenu(QMainWindow):
 
     def exit_program(self):
         """Button action: close the application gracefully."""
+        settings = options.OptionsMenu.get_settings()
+        if settings.get('confirm_exit', True):
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, 'Confirm Exit',
+                "Are you sure you want to exit?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         print("Action: Closing the application.")
         self.close()
 

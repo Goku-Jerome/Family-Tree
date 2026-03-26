@@ -32,10 +32,11 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QStackedWidget
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QDate
+from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTimer
 from PyQt6.QtGui import QFont, QPen, QBrush, QPainter
 from person import Person
 from relation import find_relationship_bfs, get_relationship_title
+import options
 
 
 class NodeItem(QGraphicsRectItem):
@@ -332,10 +333,47 @@ class TreeEditor(QMainWindow):
 
         self.update_ui_state()
 
+        # Apply settings
+        self.apply_settings()
+
+        # Set up auto-save if enabled
+        self.setup_auto_save()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         window_size = min(self.width(), self.height())
-        self.title_label.setFont(QFont("Arial", max(18, int(window_size * 0.03)), QFont.Weight.Bold))
+        settings = options.OptionsMenu.get_settings()
+        base_font_size = settings.get('font_size', 12)
+        self.title_label.setFont(QFont("Arial", max(base_font_size + 6, int(window_size * 0.03)), QFont.Weight.Bold))
+
+    def apply_settings(self):
+        """Apply current settings to this window."""
+        options.OptionsMenu.apply_theme_to_window(self)
+        
+        # Apply font size to title
+        settings = options.OptionsMenu.get_settings()
+        base_font_size = settings.get('font_size', 12)
+        self.title_label.setFont(QFont("Arial", base_font_size + 10, QFont.Weight.Bold))
+
+    def setup_auto_save(self):
+        """Set up auto-save timer if enabled."""
+        settings = options.OptionsMenu.get_settings()
+        if settings.get('auto_save', False):
+            self.auto_save_timer = QTimer(self)
+            self.auto_save_timer.timeout.connect(self.auto_save_tree)
+            self.auto_save_timer.start(30000)  # Auto-save every 30 seconds
+        else:
+            if hasattr(self, 'auto_save_timer'):
+                self.auto_save_timer.stop()
+
+    def auto_save_tree(self):
+        """Auto-save the tree to the default location."""
+        if self.people:  # Only save if there's data
+            try:
+                self.serialize_json("family_tree.json")
+                print("Auto-saved family tree")
+            except Exception as e:
+                print(f"Auto-save failed: {e}")
 
     def closeEvent(self, event):
         self.closed.emit()
@@ -724,11 +762,21 @@ class TreeEditor(QMainWindow):
 
     def save_tree(self):
         """Ask the user for a file path then save the tree."""
+        settings = options.OptionsMenu.get_settings()
+        default_format = settings.get('export_format', 'JSON')
+        
+        if default_format == 'XML':
+            default_name = "family_tree.xml"
+            file_filter = "XML Files (*.xml);;JSON Files (*.json)"
+        else:
+            default_name = "family_tree.json"
+            file_filter = "JSON Files (*.json);;XML Files (*.xml)"
+            
         path, selected = QFileDialog.getSaveFileName(
             self,
             "Save Family Tree",
-            "family_tree.json",
-            "JSON Files (*.json);;XML Files (*.xml)",
+            default_name,
+            file_filter,
         )
         if not path:
             return

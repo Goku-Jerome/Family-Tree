@@ -3,6 +3,8 @@
 # It contains easy controls for display and behavior preferences.
 
 import sys
+import json
+import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QGroupBox, QCheckBox, QComboBox, QSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -49,7 +51,132 @@ class OptionsMenu(QMainWindow):
 
         self.setMinimumSize(640, 480)
 
+        # Load settings from file
+        self.load_options()
+
+        # Apply theme
+        OptionsMenu.apply_theme_to_window(self)
+
+    def get_settings_path(self):
+        """Get the path to the settings file."""
+        return os.path.join(os.path.dirname(__file__), '..', 'settings.json')
+
+    def load_options(self):
+        """Load options from the settings file and apply to controls."""
+        settings_path = self.get_settings_path()
+        if os.path.exists(settings_path):
+            try:
+                with open(settings_path, 'r') as f:
+                    settings = json.load(f)
+                # Apply loaded settings
+                self.theme_combo.setCurrentText(settings.get('theme', 'Light'))
+                self.font_size_spin.setValue(settings.get('font_size', 12))
+                self.auto_save_checkbox.setChecked(settings.get('auto_save', False))
+                self.confirm_exit_checkbox.setChecked(settings.get('confirm_exit', True))
+                self.default_format_combo.setCurrentText(settings.get('export_format', 'JSON'))
+            except (json.JSONDecodeError, KeyError):
+                # If file is corrupted, use defaults
+                self.reset_options()
+        else:
+            # No settings file, use defaults
+            self.reset_options()
+
+    def get_settings():
+        """Static method to get current settings from file."""
+        settings_path = os.path.join(os.path.dirname(__file__), '..', 'settings.json')
+        defaults = {
+            "theme": "Light",
+            "font_size": 12,
+            "auto_save": False,
+            "confirm_exit": True,
+            "export_format": "JSON",
+        }
+        if os.path.exists(settings_path):
+            try:
+                with open(settings_path, 'r') as f:
+                    settings = json.load(f)
+                # Merge with defaults for any missing keys
+                return {**defaults, **settings}
+            except (json.JSONDecodeError, KeyError):
+                return defaults
+        return defaults
+
+    def apply_theme_to_window(window):
+        """Apply the current theme to a window."""
+        settings = OptionsMenu.get_settings()
+        theme = settings.get('theme', 'Light')
+        
+        if theme == 'Dark':
+            # Dark theme stylesheet
+            dark_stylesheet = """
+            QWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QPushButton {
+                background-color: #404040;
+                border: 1px solid #555555;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #505050;
+            }
+            QComboBox, QSpinBox {
+                background-color: #404040;
+                border: 1px solid #555555;
+                padding: 2px;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #555555;
+                border-radius: 5px;
+                margin-top: 1ex;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            """
+            window.setStyleSheet(dark_stylesheet)
+        elif theme == 'Light':
+            # Light theme (default Qt appearance)
+            window.setStyleSheet("")
+        # For 'System', do nothing (use default)
+
     def _build_sections(self):
+        """Make the three sections, each with labeled options."""
+        self.main_layout.addLayout(self._create_layout_section("Display", self._display_section_widgets()))
+        self.main_layout.addLayout(self._create_layout_section("Behavior", self._behavior_section_widgets()))
+        self.main_layout.addLayout(self._create_layout_section("Export", self._export_section_widgets()))
+
+    def save_options(self): # type: ignore
+        """Collect values from controls, save to file, and close window."""
+        values = {
+            "theme": self.theme_combo.currentText(),
+            "font_size": self.font_size_spin.value(),
+            "auto_save": self.auto_save_checkbox.isChecked(),
+            "confirm_exit": self.confirm_exit_checkbox.isChecked(),
+            "export_format": self.default_format_combo.currentText(),
+        }
+        settings_path = self.get_settings_path()
+        try:
+            with open(settings_path, 'w') as f:
+                json.dump(values, f, indent=4)
+            print("Options saved:", values)
+        except Exception as e:
+            print(f"Error saving options: {e}")
+        self.close()
+
+    def reset_options(self):
+        """Restore default options state."""
+        self.theme_combo.setCurrentText('Light')
+        self.font_size_spin.setValue(12)
+        self.auto_save_checkbox.setChecked(False)
+        self.confirm_exit_checkbox.setChecked(True)
+        self.default_format_combo.setCurrentText('JSON')
+        print("Options reset to defaults")
         """Make the three sections, each with labeled options."""
         self.main_layout.addLayout(self._create_layout_section("Display", self._display_section_widgets()))
         self.main_layout.addLayout(self._create_layout_section("Behavior", self._behavior_section_widgets()))
@@ -107,9 +234,12 @@ class OptionsMenu(QMainWindow):
     def resizeEvent(self, event):
         """Adjusts the text size to keep text readable when window resizes."""
         super().resizeEvent(event)
+        settings = OptionsMenu.get_settings()
+        base_font_size = settings.get('font_size', 12)
+        
         window_size = min(self.width(), self.height())
-        title_font_size = max(16, int(window_size * 0.06))
-        section_font_size = max(10, int(window_size * 0.03))
+        title_font_size = max(base_font_size + 4, int(window_size * 0.06))
+        section_font_size = max(base_font_size - 2, int(window_size * 0.03))
 
         self.title_label.setFont(QFont("Arial", title_font_size, QFont.Weight.Bold))
         for group in self.section_containers:
@@ -121,7 +251,7 @@ class OptionsMenu(QMainWindow):
         super().closeEvent(event)
 
     def save_options(self):
-        """Collect values from controls and close window."""
+        """Collect values from controls, save to file, and close window."""
         values = {
             "theme": self.theme_combo.currentText(),
             "font_size": self.font_size_spin.value(),
@@ -129,16 +259,22 @@ class OptionsMenu(QMainWindow):
             "confirm_exit": self.confirm_exit_checkbox.isChecked(),
             "export_format": self.default_format_combo.currentText(),
         }
-        print("Options saved:", values)
+        settings_path = self.get_settings_path()
+        try:
+            with open(settings_path, 'w') as f:
+                json.dump(values, f, indent=4)
+            print("Options saved:", values)
+        except Exception as e:
+            print(f"Error saving options: {e}")
         self.close()
 
     def reset_options(self):
         """Restore default options state."""
-        self.theme_combo.setCurrentIndex(0)
+        self.theme_combo.setCurrentText('Light')
         self.font_size_spin.setValue(12)
         self.auto_save_checkbox.setChecked(False)
         self.confirm_exit_checkbox.setChecked(True)
-        self.default_format_combo.setCurrentIndex(0)
+        self.default_format_combo.setCurrentText('JSON')
         print("Options reset to defaults")
 
 
