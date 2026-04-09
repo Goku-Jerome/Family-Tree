@@ -268,15 +268,25 @@ class FamilyUnit:
         return self.y + NODE_H / 2
 
 
-def _build_units(visible_people):
-    """Group visible people into FamilyUnits (couples share a unit)."""
+def _build_units(visible_people, focus=None):
+    """Group visible people into FamilyUnits (couples share a unit).
+    
+    When focus is given, couple units that are direct parents of the focus
+    have their members ordered so that focus.parents[0] is members[0] —
+    this ensures the paternal line consistently goes left in the layout.
+    """
     assigned = set()
     units    = []
     for p in visible_people:
         if p.id in assigned:
             continue
         if p.partner and p.partner in visible_people and p.partner.id not in assigned:
-            unit = FamilyUnit([p, p.partner])
+            # Determine canonical order: if one of these is focus.parents[0], put them first
+            p1, p2 = p, p.partner
+            if focus is not None and len(focus.parents) >= 2:
+                if p2 is focus.parents[0] and p1 is focus.parents[1]:
+                    p1, p2 = p2, p1  # swap so parents[0] is members[0]
+            unit = FamilyUnit([p1, p2])
             assigned.add(p.id)
             assigned.add(p.partner.id)
         else:
@@ -314,116 +324,275 @@ def _assign_generations(visible_people, focus):
     return gen_map
 
 
-def _layout_units(units, gen_map):
+def _layout_units(units, gen_map, focus=None):
     """
-    Assign pixel positions to every FamilyUnit using a recursive subtree
-    width algorithm – each unit is placed so its children are spread
-    symmetrically below it, and siblings never overlap.
+    Focus-centred bidirectional layout.
 
     Strategy
     --------
-    1.  Sort units into generation rows.
-    2.  For each unit, recursively compute the *minimum subtree width*
-        required by all descendants.
-    3.  Place units top-down, generation by generation, starting from
-        whichever unit has generation == min (oldest ancestors).
+    • The focus person's unit is anchored at x = 0.
+    • Their children (and descendants) are spread symmetrically *below* them,
+      exactly as before.
+    • Their parents are split LEFT / RIGHT:
+        – parent[0]'s entire ancestor subtree goes to the LEFT  (negative x)
+        – parent[1]'s entire ancestor subtree goes to the RIGHT (positive x)
+      Each parent subtree is recursively laid out the same way: a parent's
+      own parents split left/right above them.
+    • Siblings of the focus person (and their cousins etc.) are children of
+      their shared parent unit, so they fall naturally below that parent unit
+      after the parent has been placed.
+    • Any units not reachable from the focus (disconnected sub-trees) are
+      appended to the right.
     """
-    # Map: person -> unit
+    # ── helpers ────────────────────────────────────────────────────
     p2u = {}
     for u in units:
         for m in u.members:
             p2u[m] = u
 
-    # Map: unit -> generation  (use average of members' gens)
     def unit_gen(u):
         gens = [gen_map.get(m, 0) for m in u.members]
         return round(sum(gens) / len(gens))
 
     u_gen   = {u: unit_gen(u) for u in units}
     min_gen = min(u_gen.values())
-    max_gen = max(u_gen.values())
 
-    # Children units of a given unit (via any member's children)
     def child_units(u):
         cu = set()
         for m in u.members:
             for ch in m.children:
                 if ch in p2u:
                     cu.add(p2u[ch])
-        return [c for c in cu if u_gen[c] > u_gen[u]]   # only downward
+        return [c for c in cu if u_gen[c] > u_gen[u]]
 
-    # ── Minimum subtree width (recursive) ──────────────────────────
-    subtree_cache = {}
-    def subtree_width(u):
-        if u in subtree_cache:
-            return subtree_cache[u]
+    def parent_units(u):
+        pu = set()
+        for m in u.members:
+            for par in m.parents:
+                if par in p2u:
+                    pu.add(p2u[par])
+        return [p for p in pu if u_gen[p] < u_gen[u]]
+
+    # ── subtree widths (downward, used for children) ────────────────
+    down_cache = {}
+    def down_width(u):
+        if u in down_cache:
+            return down_cache[u]
         children = child_units(u)
         if not children:
             w = u.width + SUBTREE_PAD
         else:
             w = max(u.width + SUBTREE_PAD,
-                    sum(subtree_width(c) for c in children))
-        subtree_cache[u] = w
+                    sum(down_width(c) for c in children))
+        down_cache[u] = w
         return w
 
-    # ── Roots = units at the oldest generation ─────────────────────
-    roots = [u for u in units if u_gen[u] == min_gen]
+    # ── ancestor widths (upward, used for parents) ─────────────────
+    # The "ancestor subtree width" of a unit is the total horizontal space
+    # needed by itself plus everything above it.
+    up_cache = {}
+    def up_width(u):
+        """Width needed by u and ALL its ancestors."""
+        if u in up_cache:
+            return up_cache[u]
+        parents = parent_units(u)
+        if not parents:
+            w = u.width + SUBTREE_PAD
+        else:
+            w = max(u.width + SUBTREE_PAD,
+                    sum(up_width(p) for p in parents))
+        up_cache[u] = w
+        return w
 
-    # ── Place roots side by side ────────────────────────────────────
-    placed  = set()
-    u_x     = {}   # unit -> centre_x
-    u_y     = {}   # unit -> top_y
+    # ── placement state ─────────────────────────────────────────────
+    placed = set()
+    u_x    = {}
+    u_y    = {}
 
-    def place_unit(u, cx, gen):
-        u_x[u]  = cx
-        u_y[u]  = (gen - min_gen) * (NODE_H + GEN_H_GAP)
-        placed.add(u)
+    def y_for_gen(g):
+        return (g - min_gen) * (NODE_H + GEN_H_GAP)
 
+    # ── place children symmetrically below a unit ───────────────────
+    def place_children(u):
         children = [c for c in child_units(u) if c not in placed]
         if not children:
             return
-
-        total_w = sum(subtree_width(c) for c in children)
-        x_cursor = cx - total_w / 2
-
+        total_w  = sum(down_width(c) for c in children)
+        x_cursor = u_x[u] - total_w / 2
         for c in children:
-            sw  = subtree_width(c)
-            c_cx = x_cursor + sw / 2
-            place_unit(c, c_cx, u_gen[c])
+            sw  = down_width(c)
+            cx  = x_cursor + sw / 2
+            if c not in placed:
+                u_x[c] = cx
+                u_y[c] = y_for_gen(u_gen[c])
+                placed.add(c)
+            place_children(c)
             x_cursor += sw
 
-    # Place each root; stagger horizontally if there are multiple trees
-    x_offset = 0
-    for r in roots:
-        sw = subtree_width(r)
-        place_unit(r, x_offset + sw / 2, u_gen[r])
-        x_offset += sw + 60   # gap between disconnected trees
+    # ── place parents split left/right above a unit ─────────────────
+    def ensure_left_member(u, left_hint):
+        """Reorder u.members so left_hint (or their child) is members[0]."""
+        if len(u.members) < 2:
+            return
+        if left_hint is None:
+            return
+        # left_hint is a Person who should be on the left side of this unit.
+        # If they're members[1], swap.
+        if u.members[1] is left_hint:
+            u.members[0], u.members[1] = u.members[1], u.members[0]
 
-    # Anything not placed (orphans with no lineage connection to roots)
-    orphan_x = x_offset
+    def anchored_parent_x(parent_unit):
+        child_positions = [u_x[c] for c in child_units(parent_unit) if c in u_x]
+        if child_positions:
+            return sum(child_positions) / len(child_positions)
+        return None
+
+    def place_parents(u, visited=None):
+        """
+        Place all parent units above u.
+        """
+        if visited is None:
+            visited = set()
+        if u in visited:
+            return
+        visited.add(u)
+
+        parents = [p for p in parent_units(u) if p not in placed]
+        if not parents:
+            return
+
+        if len(parents) == 1:
+            p = parents[0]
+            anchor_x = anchored_parent_x(p)
+            u_x[p] = anchor_x if anchor_x is not None else u_x[u]
+            u_y[p] = y_for_gen(u_gen[p])
+            placed.add(p)
+            place_children(p)
+            place_parents(p, visited)
+            return
+
+        member_left  = u.members[0] if len(u.members) >= 1 else None
+        member_right = u.members[1] if len(u.members) >= 2 else None
+
+        def parent_side(pu):
+            is_right = member_right is not None and any(m in member_right.parents for m in pu.members)
+            is_left  = member_left  is not None and any(m in member_left.parents  for m in pu.members)
+            if is_right and not is_left:
+                return 'right'
+            return 'left'
+
+        left_parents  = [p for p in parents if parent_side(p) == 'left']
+        right_parents = [p for p in parents if parent_side(p) == 'right']
+
+        # Place any anchored parent units first so they remain centered above their already-positioned children.
+        for p in left_parents + right_parents:
+            anchor_x = anchored_parent_x(p)
+            if anchor_x is not None:
+                u_x[p] = anchor_x
+                u_y[p] = y_for_gen(u_gen[p])
+                placed.add(p)
+
+        def place_side(side_parents, direction):
+            if not side_parents:
+                return
+            x_cursor = u_x[u]
+            if direction == -1:
+                x_cursor = u_x[u]
+            for p in side_parents:
+                if p in u_x:
+                    continue
+                width = max(p.width + SUBTREE_PAD, NODE_W)
+                if direction == -1:
+                    x_cursor -= width / 2
+                    u_x[p] = x_cursor
+                    x_cursor -= width / 2 + H_GAP
+                else:
+                    x_cursor += width / 2
+                    u_x[p] = x_cursor
+                    x_cursor += width / 2 + H_GAP
+                u_y[p] = y_for_gen(u_gen[p])
+                placed.add(p)
+
+        place_side(left_parents, -1)
+        place_side(right_parents, +1)
+
+        for p in left_parents + right_parents:
+            place_children(p)
+            place_parents(p, visited)
+
+    # ── seed: place the focus unit at x=0 ───────────────────────────
+    focus_unit = None
+    if focus is not None and focus in p2u:
+        focus_unit = p2u[focus]
+
+    if focus_unit is None:
+        # Fall back: pick the unit whose members have gen closest to 0
+        focus_unit = min(units, key=lambda u: abs(unit_gen(u)))
+
+    u_x[focus_unit] = 0.0
+    u_y[focus_unit] = y_for_gen(u_gen[focus_unit])
+    placed.add(focus_unit)
+
+    # Spread focus unit's children below it
+    place_children(focus_unit)
+
+    # Spread parents (and their ancestors) above it.
+    # left_hint = focus's first listed parent -> their parent unit goes LEFT.
+    place_parents(focus_unit)
+
+    # ── handle any unplaced units (disconnected) ────────────────────
+    # Find rightmost x used so far
+    if u_x:
+        right_edge = max(u_x[u] + u.width / 2 for u in placed)
+    else:
+        right_edge = 0.0
+
+    orphan_x = right_edge + 100
     for u in units:
         if u not in placed:
-            place_unit(u, orphan_x + u.width / 2, u_gen[u])
-            orphan_x += u.width + 40
+            u_x[u] = orphan_x
+            u_y[u] = y_for_gen(u_gen[u])
+            placed.add(u)
+            place_children(u)
+            place_parents(u)
+            orphan_x += down_width(u) + 60
 
     # ── Push overlapping units on same row apart ───────────────────
-    # Sort per generation row and nudge apart
+    # Sort per generation row and nudge apart.
+    # Two passes: left-to-right (push right) then right-to-left (push left)
+    # so the layout stays balanced around the focus x=0 anchor.
     rows = collections.defaultdict(list)
     for u in units:
         rows[u_gen[u]].append(u)
 
     for gen_row in rows.values():
+        if not gen_row:
+            continue
+        orig_center = sum(u_x[u] for u in gen_row) / len(gen_row)
         gen_row.sort(key=lambda u: u_x[u])
+        # Pass 1: push overlapping units rightward
         for i in range(1, len(gen_row)):
             prev = gen_row[i - 1]
             curr = gen_row[i]
             min_cx = u_x[prev] + prev.width / 2 + H_GAP + curr.width / 2
             if u_x[curr] < min_cx:
                 shift = min_cx - u_x[curr]
-                u_x[curr] += shift
-                # Propagate shift to all units to the right
-                for j in range(i + 1, len(gen_row)):
+                for j in range(i, len(gen_row)):
                     u_x[gen_row[j]] += shift
+        # Pass 2: push overlapping units leftward
+        for i in range(len(gen_row) - 2, -1, -1):
+            curr = gen_row[i]
+            nxt  = gen_row[i + 1]
+            max_cx = u_x[nxt] - nxt.width / 2 - H_GAP - curr.width / 2
+            if u_x[curr] > max_cx:
+                shift = u_x[curr] - max_cx
+                for j in range(i + 1):
+                    u_x[gen_row[j]] -= shift
+        new_center = sum(u_x[u] for u in gen_row) / len(gen_row)
+        center_shift = orig_center - new_center
+        if abs(center_shift) > 1e-6:
+            for u in gen_row:
+                u_x[u] += center_shift
 
     # Write back into unit objects
     for u in units:
@@ -947,9 +1116,9 @@ class TreeEditor(QMainWindow):
         focus = self.current_person if self.current_person in visible else next(iter(visible))
 
         # ── 1. Build units & assign generations ──────────────────
-        units   = _build_units(visible)
+        units   = _build_units(visible, focus=focus)
         gen_map = _assign_generations(visible, focus)
-        p2u     = _layout_units(units, gen_map)
+        p2u     = _layout_units(units, gen_map, focus=focus)
 
         # ── 2. Place node items ───────────────────────────────────
         for unit in units:
@@ -1051,9 +1220,8 @@ class TreeEditor(QMainWindow):
             children_vis = []
             for m in unit.members:
                 for ch in m.children:
-                    if ch in {p for p in self.node_items} or ch.id in self.node_items:
-                        if ch.id in self.node_items:
-                            children_vis.append(ch)
+                    if ch.id in self.node_items:
+                        children_vis.append(ch)
 
             # Deduplicate while preserving order
             seen = set()
