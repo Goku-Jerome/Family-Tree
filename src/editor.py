@@ -85,13 +85,14 @@ class NodeItem(QGraphicsRectItem):
     A drawable rounded rectangle card representing one person on the scene.
     Displays names and dates of birth, changing colors when selected or based on gender.
     """
-    def __init__(self, person: Person, callback):
+    def __init__(self, person: Person, callback, toggle_callback=None, can_expand: bool=False, is_expanded: bool=False):
         """
         Initializes the node shape, adds text sub-labels, and wires selection click triggers.
         """
         super().__init__(0, 0, NODE_W, NODE_H)
         self.person = person
         self.callback = callback
+        self.toggle_callback = toggle_callback
         
         # Enable selection flag for QGraphicsScene registry
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -103,15 +104,25 @@ class NodeItem(QGraphicsRectItem):
         self.label = QGraphicsTextItem(display, self)
         self.label.setDefaultTextColor(Qt.GlobalColor.black)
         self.label.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-        self.label.setTextWidth(NODE_W - 8)
+        self.label.setTextWidth(NODE_W - 20) # Leave room for toggle
         self.label.setPos(4, (NODE_H - self.label.boundingRect().height()) / 2)
 
-        # Date of birth sub-label (positioned at the bottom edge of the card)
+        # Date of birth sub-label
         if person.dob and person.dob != "Unknown":
             dob_label = QGraphicsTextItem(person.dob, self)
             dob_label.setDefaultTextColor(QColor("#555555"))
             dob_label.setFont(QFont("Arial", 7))
             dob_label.setPos(4, NODE_H - 16)
+
+        # Expand/Collapse Ancestry Toggle
+        self.toggle_btn = None
+        if can_expand:
+            text = "[-]" if is_expanded else "[+]"
+            self.toggle_btn = QGraphicsTextItem(text, self)
+            self.toggle_btn.setDefaultTextColor(Qt.GlobalColor.black)
+            self.toggle_btn.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+            # Position in top right corner
+            self.toggle_btn.setPos(NODE_W - 26, 2)
 
     def _bg_colour(self) -> QColor:
         """Determines card color according to active selection state and gender."""
@@ -138,6 +149,16 @@ class NodeItem(QGraphicsRectItem):
 
     def mousePressEvent(self, event):
         """Overwritten Qt handler. Trigger callback to update selection index in editor."""
+        # Check if the click was on the [+] / [-] toggle button
+        if self.toggle_btn:
+            btn_rect = self.toggle_btn.boundingRect().translated(self.toggle_btn.pos())
+            # Expand clickable area slightly for easier clicking
+            expanded_rect = btn_rect.adjusted(-5, -5, 5, 5)
+            if expanded_rect.contains(event.pos()):
+                if callable(self.toggle_callback):
+                    self.toggle_callback(self.person)
+                return
+
         super().mousePressEvent(event)
         if callable(self.callback):
             self.callback(self.person)
@@ -321,6 +342,7 @@ class TreeEditor(QMainWindow):
         self.current_person = None   # Person object currently selected
         self.compare_person = None   # Person object chosen in details panel to compute relations path
         self.node_items = {}         # Map: person_id (str) -> NodeItem object in the active graphics scene
+        self.expanded_branches = {}  # Map: frozenset([pid1, pid2]) -> expanded_person_id
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -373,8 +395,12 @@ class TreeEditor(QMainWindow):
         self.edit_button.clicked.connect(self.edit_current_person)
         self.delete_button   = QPushButton("Delete Person")
         self.delete_button.clicked.connect(self.delete_current_person)
+        self.trace_partner_button = QPushButton("Trace Partner's Line")
+        self.trace_partner_button.clicked.connect(self.trace_partner_line)
+        self.trace_partner_button.setVisible(False)
         info_panel.addWidget(self.name_label)
         info_panel.addWidget(self.relations_label)
+        info_panel.addWidget(self.trace_partner_button)
         info_panel.addWidget(self.edit_button)
         info_panel.addWidget(self.delete_button)
 
@@ -481,9 +507,15 @@ class TreeEditor(QMainWindow):
         
         if self.current_person:
             self.display_current_person()
+            if self.current_person.partner:
+                self.trace_partner_button.setText(f"Trace {self.current_person.partner.first_name}'s Line")
+                self.trace_partner_button.setVisible(True)
+            else:
+                self.trace_partner_button.setVisible(False)
         else:
             self.name_label.setText("Name: -")
             self.relations_label.setText("Relations: -")
+            self.trace_partner_button.setVisible(False)
 
     def refresh_person_selector(self):
         """Re-populates selection lists (and comparison lists) with the active registry."""
@@ -582,6 +614,11 @@ class TreeEditor(QMainWindow):
         partner  = self.current_person.partner.name if self.current_person.partner else "None"
         self.relations_label.setText(f"Parents: {parents}\nChildren: {children}\nPartner: {partner}")
 
+    def trace_partner_line(self):
+        """Sets the partner as the current focus person, which effectively swaps the active ancestry trace."""
+        if self.current_person and self.current_person.partner:
+            self.set_current_person(self.current_person.partner)
+
     # ── CRUD database actions ──
     def delete_current_person(self):
         """Sever relationships, delete from memory database, and clear selection."""
@@ -661,7 +698,10 @@ class TreeEditor(QMainWindow):
         ----
         Invokes the visibility module to filter the display set around the selection.
         """
-        return visibility.calculate_visible_people(self.current_person, self.people, max_visible=MAX_VISIBLE)
+        return visibility.calculate_visible_people(
+            self.current_person, self.people, max_visible=MAX_VISIBLE,
+            expanded_branches=self.expanded_branches
+        )
 
     # ── Database Serialization / File I/O ──
     def build_person_data(self, person: Person) -> dict:
@@ -860,6 +900,39 @@ class TreeEditor(QMainWindow):
 
         self.set_current_person(self.current_person)
 
+    def is_branch_expanded(self, p: Person) -> bool:
+        """Helper to determine if a person's ancestry is currently being traced."""
+        if p is self.current_person or p in self.current_person.parents:
+            return True
+        if not p.partner:
+            return True
+        key = frozenset([p.id, p.partner.id])
+        if key in self.expanded_branches:
+            return self.expanded_branches[key] == p.id
+        pg = str(p.gender).lower() if p.gender else ""
+        partner_g = str(p.partner.gender).lower() if p.partner.gender else ""
+        if pg.startswith("m") and not partner_g.startswith("m"):
+            return True
+        elif not pg.startswith("m") and partner_g.startswith("m"):
+            return False
+        return p.id < p.partner.id
+
+    def toggle_branch(self, person: Person):
+        """Callback for the [+] / [-] buttons on the cards. Swaps expanded branch."""
+        if not person.partner:
+            return
+        key = frozenset([person.id, person.partner.id])
+        current_expanded = person.id if self.is_branch_expanded(person) else person.partner.id
+        
+        if current_expanded == person.id:
+            # Collapse this person by expanding their partner
+            self.expanded_branches[key] = person.partner.id
+        else:
+            # Expand this person
+            self.expanded_branches[key] = person.id
+            
+        self.refresh_graph()
+
     # ── Layout Rendering & Drawing (Calls layout.py computation coordinates) ──
     def refresh_graph(self):
         """
@@ -889,15 +962,25 @@ class TreeEditor(QMainWindow):
         for unit in units:
             if len(unit.members) == 1:
                 p = unit.members[0]
-                node = NodeItem(p, self.set_current_person)
+                node = NodeItem(p, self.set_current_person, self.toggle_branch, False, True)
                 # Position single-card unit centered horizontally
                 node.setPos(unit.x - NODE_W / 2, unit.y)
                 self.scene.addItem(node)
                 self.node_items[p.id] = node
             else:
                 p1, p2 = unit.members[0], unit.members[1]
-                n1 = NodeItem(p1, self.set_current_person)
-                n2 = NodeItem(p2, self.set_current_person)
+                
+                # We show [+] / [-] icons on couples, UNLESS they are the focus person 
+                # or the focus person's parents (who are always expanded)
+                can1 = True
+                can2 = True
+                if focus and (p1 is focus or p2 is focus or p1 in focus.parents or p2 in focus.parents):
+                    can1 = False
+                    can2 = False
+                
+                n1 = NodeItem(p1, self.set_current_person, self.toggle_branch, can1, self.is_branch_expanded(p1))
+                n2 = NodeItem(p2, self.set_current_person, self.toggle_branch, can2, self.is_branch_expanded(p2))
+                
                 # Position couple cards side-by-side with a gap between them
                 x1 = unit.x - COUPLE_GAP / 2 - NODE_W
                 x2 = unit.x + COUPLE_GAP / 2

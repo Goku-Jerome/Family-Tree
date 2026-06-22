@@ -1,7 +1,7 @@
 import collections
 from person import Person
 
-def calculate_visible_people(focus_person: Person, all_people: dict, max_visible: int = 2000) -> set[Person]:
+def calculate_visible_people(focus_person: Person, all_people: dict, max_visible: int = 2000, expanded_branches: dict = None) -> set[Person]:
     """
     Job:
     ----
@@ -60,11 +60,47 @@ def calculate_visible_people(focus_person: Person, all_people: dict, max_visible
     # ── Tiers 5 & 4: Focus person, direct ancestors, and direct descendants ──
     _set(focus_person, 5)
 
+    if expanded_branches is None:
+        expanded_branches = {}
+
+    def is_expanded(p: Person) -> bool:
+        """Determines if we should trace upwards from this person."""
+        # If explicitly set in the UI, ALWAYS respect user choice
+        if p.partner and _known(p.partner):
+            key = frozenset([p.id, p.partner.id])
+            if key in expanded_branches:
+                return expanded_branches[key] == p.id
+                
+        # Default rules if no explicit choice was made:
+        # 1. Focus person and their immediate parents are ALWAYS expanded
+        if p is focus_person or p in focus_person.parents:
+            return True
+            
+        # 2. If they have no partner, they are naturally expanded (single parent line)
+        if not p.partner or not _known(p.partner):
+            return True
+            
+        # 3. Default to the male (paternal line)
+        pg = str(p.gender).lower() if p.gender else ""
+        partner_g = str(p.partner.gender).lower() if p.partner.gender else ""
+        if pg.startswith("m") and not partner_g.startswith("m"):
+            return True
+        elif not pg.startswith("m") and partner_g.startswith("m"):
+            return False
+            
+        # 4. Fallback to ID sorting
+        return p.id < p.partner.id
+
     # Walk upwards to collect all ancestors (parents, grandparents, great-grandparents, etc.)
     anc_q = collections.deque([focus_person])
     anc_seen = {focus_person}
     while anc_q:
         p = anc_q.popleft()
+        
+        # STOP CONDITION: If person is not the expanded spouse, stop tracing their parents
+        if not is_expanded(p):
+            continue
+            
         for par in p.parents:
             if _known(par) and par not in anc_seen:
                 anc_seen.add(par)
@@ -103,6 +139,8 @@ def calculate_visible_people(focus_person: Person, all_people: dict, max_visible
     # ── Tier 3: Aunts/uncles (parents' siblings) + first cousins (their children) ──
     first_cousins = set()
     for par in focus_person.parents:
+        if not is_expanded(par):
+            continue
         for gpar in par.parents:               # Grandparents
             if not _known(gpar):
                 continue
