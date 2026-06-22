@@ -1,7 +1,7 @@
 import collections
 from person import Person
 
-def calculate_visible_people(focus_person: Person, all_people: dict, max_visible: int = 200) -> set[Person]:
+def calculate_visible_people(focus_person: Person, all_people: dict, max_visible: int = 2000) -> set[Person]:
     """
     Job:
     ----
